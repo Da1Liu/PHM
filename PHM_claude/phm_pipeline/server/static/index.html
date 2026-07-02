@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机床健康基线控制台</title>
+<style>
+  :root { --bg:#0f1418; --panel:#1a2129; --panel2:#222c36; --line:#2f3b46;
+          --fg:#dfe7ee; --mut:#8b9aa7; --acc:#4aa3ff; --ok:#37c871; --warn:#f5a623; --bad:#ef4d4d; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,"Microsoft YaHei",sans-serif;
+         background:var(--bg); color:var(--fg); font-size:14px; }
+  header { background:var(--panel); border-bottom:1px solid var(--line); padding:10px 18px;
+           display:flex; align-items:center; gap:18px; flex-wrap:wrap; position:sticky; top:0; z-index:10; }
+  header h1 { font-size:17px; margin:0; font-weight:600; }
+  .pill { background:var(--panel2); border:1px solid var(--line); border-radius:20px;
+          padding:3px 11px; font-size:12px; color:var(--mut); }
+  .pill b { color:var(--fg); }
+  .wrap { display:grid; grid-template-columns:380px 1fr; gap:14px; padding:14px; align-items:start; }
+  .col { display:flex; flex-direction:column; gap:14px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:14px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  .card h2 .step { background:var(--acc); color:#04121f; border-radius:50%; width:20px; height:20px;
+                   display:inline-flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+  label { display:block; font-size:12px; color:var(--mut); margin:8px 0 3px; }
+  input, select { width:100%; background:var(--panel2); border:1px solid var(--line); color:var(--fg);
+                  border-radius:6px; padding:6px 8px; font-size:13px; }
+  input[type=checkbox] { width:auto; }
+  .row { display:flex; gap:8px; } .row > * { flex:1; }
+  button { background:var(--acc); color:#04121f; border:none; border-radius:6px; padding:7px 12px;
+           font-size:13px; font-weight:600; cursor:pointer; }
+  button.ghost { background:var(--panel2); color:var(--fg); border:1px solid var(--line); font-weight:500; }
+  button.sm { padding:3px 8px; font-size:12px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:500; }
+  .muted { color:var(--mut); font-size:12px; }
+  .msg { font-size:12px; margin-top:6px; min-height:16px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  .tag { font-size:11px; padding:1px 6px; border-radius:4px; background:var(--panel2); border:1px solid var(--line); }
+  .scroll { max-height:240px; overflow:auto; }
+  .gauge { display:flex; align-items:center; gap:16px; }
+  .gnum { font-size:42px; font-weight:700; line-height:1; }
+  .badge { padding:3px 9px; border-radius:6px; font-size:12px; font-weight:600; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  canvas { width:100%; background:var(--panel2); border:1px solid var(--line); border-radius:8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { font-size:11px; background:var(--panel2); border:1px solid var(--line); border-radius:5px; padding:2px 7px; }
+  .reducers span { cursor:pointer; user-select:none; }
+  .reducers span.on { background:var(--acc); color:#04121f; border-color:var(--acc); }
+</style>
+</head>
+<body>
+<header>
+  <h1>机床健康基线控制台</h1>
+  <span class="pill" id="p-mode">模式 <b>—</b></span>
+  <span class="pill" id="p-conn">连接 <b>未连接</b></span>
+  <span class="pill" id="p-sys">系统 <b>—</b></span>
+  <span class="pill" id="p-pool">样本 <b>0</b></span>
+  <span class="pill" id="p-stage">阶段 <b>—</b></span>
+  <span class="pill" id="p-model">模型 <b>无</b></span>
+  <span class="pill" id="p-ws" style="margin-left:auto;">WS <b>—</b></span>
+</header>
+
+<div class="wrap">
+  <!-- 左列: 配置 -->
+  <div class="col">
+    <!-- 1 连接 -->
+    <div class="card">
+      <h2><span class="step">1</span> 连接 NC-Link API Server</h2>
+      <label><input type="checkbox" id="mock"> 无硬件演示模式 (mock)</label>
+      <div class="row"><div><label>API Server 地址</label><input id="host" value="127.0.0.1"></div>
+        <div style="flex:.5"><label>端口</label><input id="port" value="19001"></div></div>
+      <label>设备 SN 码</label><input id="sn" placeholder="如 1AFFFD1E7F36CAD">
+      <div style="margin-top:10px;"><button id="btn-connect">连接 / 测试</button></div>
+      <div class="msg" id="msg-conn"></div>
+    </div>
+
+    <!-- 2 通道映射 -->
+    <div class="card">
+      <h2><span class="step">2</span> 通道映射</h2>
+      <div class="row">
+        <select id="cand-filter"></select>
+        <button class="ghost sm" id="btn-loadmodel">加载 model.json 候选</button>
+      </div>
+      <div class="scroll" style="margin-top:8px;">
+        <table><thead><tr><th>候选项</th><th>路径</th><th></th></tr></thead>
+        <tbody id="cand-body"><tr><td colspan="3" class="muted">点"加载候选"或手动添加</td></tr></tbody></table>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input id="m-path" placeholder="NC-Link 路径 /MACHINE/...">
+        <input id="m-index" placeholder="index" style="flex:.4">
+        <button class="ghost sm" id="btn-addrow">+手动</button>
+      </div>
+      <div class="msg" id="msg-map"></div>
+    </div>
+
+    <!-- 3 采集 -->
+    <div class="card">
+      <h2><span class="step">3</span> 采集窗口</h2>
+      <div class="row">
+        <div><label>系统</label><input id="system" value="feed"></div>
+        <div><label>采集周期(ms)</label><input id="interval" value="100"></div>
+        <div><label>窗口点数</label><input id="npoints" value="600"></div>
+      </div>
+      <div class="row">
+        <div><label>工况标签 (JSON, 可空)</label><input id="cond" placeholder='{"feed_bin":1000,"axis":"X"}'></div>
+        <div style="flex:.5"><label>模拟日(演示)</label><input id="simday" placeholder="可空"></div>
+      </div>
+      <div id="mockbox" style="display:none;margin-top:8px;">
+        <label>mock 退化注入 drift = <span id="driftval">0.0</span></label>
+        <input type="range" id="drift" min="0" max="3" step="0.1" value="0">
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <button id="btn-collect">开始采集</button>
+        <button class="ghost" id="btn-stop" disabled>停止</button>
+      </div>
+      <div class="msg" id="msg-collect"></div>
+      <div id="live" class="muted"></div>
+    </div>
+  </div>
+
+  <!-- 右列: 看板 -->
+  <div class="col">
+    <!-- 当前映射 -->
+    <div class="card">
+      <h2>当前映射 <span class="muted" id="map-count"></span>
+        <button class="ghost sm" id="btn-probe" style="margin-left:auto;">probe 选中</button>
+        <button class="sm" id="btn-savemap">保存映射</button></h2>
+      <div class="scroll">
+        <table><thead><tr><th></th><th>PHM名</th><th>角色</th><th>特征(reducer)</th><th>路径@idx</th><th>公式</th><th></th></tr></thead>
+        <tbody id="map-body"></tbody></table>
+      </div>
+      <div class="msg" id="msg-probe"></div>
+    </div>
+
+    <!-- 健康看板 -->
+    <div class="card">
+      <h2>健康看板</h2>
+      <div class="grid2">
+        <div class="gauge">
+          <div><div class="gnum" id="g-health">—</div><div class="muted">健康度</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <span class="badge" id="g-stage" style="background:var(--panel2);">阶段 —</span>
+            <span class="badge" id="g-alarm" style="background:var(--panel2);">无告警</span>
+          </div>
+        </div>
+        <div>
+          <div class="muted">score / T² / SPE</div>
+          <div id="g-scores" style="font-size:13px;line-height:1.7;">—</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="muted">健康度趋势 (随采集次序)</div>
+        <canvas id="chart" height="170"></canvas>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="muted">贡献分解 (成熟期告警归因)</div>
+        <div class="chips" id="contrib"><span class="muted">成熟期且有模型后显示</span></div>
+      </div>
+    </div>
+
+    <!-- 历史 -->
+    <div class="card">
+      <h2>采集历史 <button class="ghost sm" id="btn-refresh" style="margin-left:auto;">刷新</button></h2>
+      <div class="scroll">
+        <table><thead><tr><th>#</th><th>日</th><th>阶段</th><th>健康度</th><th>score</th><th>告警</th><th>工况</th></tr></thead>
+        <tbody id="hist-body"><tr><td colspan="7" class="muted">暂无</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = (url, opt) => fetch(url, opt).then(r => r.json());
+const post = (url, body) => api(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+const REDUCERS = ["mean","std","rms","kurtosis","crest","p2p","p95","min","max","slope"];
+let mapping = [];            // [{nclink_path,index,phm_name,role,reducers,formula,condition_agg}]
+let healthSeries = [];       // [{health, score, stage, alarm}]
+
+function setMsg(id, text, cls){ const e=$(id); e.textContent=text||''; e.className='msg '+(cls||''); }
+
+// ---------- 状态栏 ----------
+async function refreshState(){
+  const s = await api('/api/state');
+  $('p-mode').innerHTML = '模式 <b>'+(s.mock?'演示(mock)':'真实')+'</b>';
+  $('p-conn').innerHTML = '连接 <b class="'+(s.connected?'ok':'bad')+'">'+(s.connected?'已连接':'未连接')+'</b>';
+  $('p-sys').innerHTML = '系统 <b>'+(s.system||'—')+'</b>';
+  $('p-pool').innerHTML = '样本 <b>'+s.n_pool+'</b>'+(s.n_days?(' / '+s.n_days+'日'):'');
+  $('p-stage').innerHTML = '阶段 <b>'+(s.stage||'—')+'</b>';
+  $('p-model').innerHTML = '模型 <b class="'+(s.has_model?'ok':'')+'">'+(s.has_model?'已训练':'无')+'</b>';
+  $('mockbox').style.display = s.mock ? 'block' : 'none';
+  if(s.mock) $('mock').checked = true;
+  if(s.connection){ $('host').value=s.connection.host; $('port').value=s.connection.port; $('sn').value=s.connection.sn; }
+  if(s.mapping){ mapping = s.mapping.entries; $('system').value=s.mapping.system;
+                 $('interval').value=s.mapping.interval_ms; $('npoints').value=s.mapping.n_points; renderMapping(); }
+}
+
+// ---------- 1 连接 ----------
+$('btn-connect').onclick = async () => {
+  setMsg('msg-conn','连接中…');
+  const r = await post('/api/connect', {mock:$('mock').checked, host:$('host').value,
+    port:$('port').value, sn:$('sn').value});
+  setMsg('msg-conn', r.msg||r.error, r.ok?'ok':'bad');
+  refreshState();
+};
+
+// ---------- 2 候选 ----------
+let candidates = [];
+$('btn-loadmodel').onclick = async () => {
+  const r = await api('/api/model');
+  candidates = r.candidates||[];
+  const cats = ['(全部)',...new Set(candidates.map(c=>c.category))];
+  $('cand-filter').innerHTML = cats.map(c=>'<option>'+c+'</option>').join('');
+  renderCandidates();
+  setMsg('msg-map', '加载 '+candidates.length+' 个候选 ('+r.source+')', 'ok');
+};
+$('cand-filter').onchange = renderCandidates;
+function renderCandidates(){
+  const f = $('cand-filter').value;
+  const list = candidates.filter(c=> f==='(全部)'||!f || c.category===f);
+  $('cand-body').innerHTML = list.map((c,i)=>{
+    const vmark = c.verified ? '' : ' <span class="tag warn" title="'+c.note+'">需probe</span>';
+    return '<tr><td>'+c.name+vmark+'</td><td class="muted" style="font-size:11px;">'+c.path+
+      (c.needs_index?' <span class="tag">idx</span>':'')+'</td>'+
+      '<td><button class="ghost sm" onclick="addCand('+candidates.indexOf(c)+')">+</button></td></tr>';
+  }).join('') || '<tr><td colspan="3" class="muted">无</td></tr>';
+}
+window.addCand = (i) => {
+  const c = candidates[i];
+  addEntry({nclink_path:c.path, index:c.needs_index?0:null, phm_name:suggestName(c),
+    role:'channel', reducers:['mean','std'], formula:'', condition_agg:'last'});
+};
+function suggestName(c){
+  let base = (c.path.split('@').pop().split('/').pop()||'ch').toLowerCase().replace(/[^a-z0-9]/g,'_');
+  let n=base, k=1; while(mapping.some(e=>e.phm_name===n)){ n=base+'_'+(k++); } return n;
+}
+$('btn-addrow').onclick = () => {
+  const path=$('m-path').value.trim(); if(!path) return;
+  const idx=$('m-index').value.trim();
+  addEntry({nclink_path:path, index:idx===''?null:parseInt(idx), phm_name:'',
+    role:'channel', reducers:['mean','std'], formula:'', condition_agg:'last'});
+  $('m-path').value=''; $('m-index').value='';
+};
+function addEntry(e){ if(!e.phm_name) e.phm_name=suggestName({path:e.nclink_path}); mapping.push(e); renderMapping(); }
+
+// ---------- 当前映射表 ----------
+function renderMapping(){
+  $('map-count').textContent = '('+mapping.length+' 项)';
+  $('map-body').innerHTML = mapping.map((e,i)=>{
+    const red = REDUCERS.map(r=>'<span class="chip '+((e.reducers||[]).includes(r)?'on':'')+
+        '" onclick="toggleRed('+i+',\''+r+'\')">'+r+'</span>').join('');
+    return '<tr>'+
+      '<td><input type="checkbox" data-i="'+i+'" class="psel"></td>'+
+      '<td><input value="'+(e.phm_name||'')+'" onchange="setF('+i+',\'phm_name\',this.value)" style="width:80px"></td>'+
+      '<td><select onchange="setF('+i+',\'role\',this.value)">'+
+        ['channel','confounder_temp','condition'].map(r=>'<option '+(e.role===r?'selected':'')+'>'+r+'</option>').join('')+'</select></td>'+
+      '<td class="reducers chips" style="max-width:150px">'+(e.role==='channel'?red:'<span class="muted">—</span>')+'</td>'+
+      '<td class="muted" style="font-size:11px;max-width:150px;overflow:hidden">'+e.nclink_path+(e.index!=null?('@'+e.index):'')+'</td>'+
+      '<td><input value="'+(e.formula||'')+'" placeholder="可空" onchange="setF('+i+',\'formula\',this.value)" style="width:70px"></td>'+
+      '<td><button class="ghost sm" onclick="delE('+i+')">×</button></td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">尚无映射, 从左侧候选添加</td></tr>';
+}
+window.setF = (i,k,v) => { mapping[i][k]=v; if(k==='role') renderMapping(); };
+window.toggleRed = (i,r) => { let a=mapping[i].reducers||[]; mapping[i].reducers = a.includes(r)?a.filter(x=>x!==r):[...a,r]; renderMapping(); };
+window.delE = (i) => { mapping.splice(i,1); renderMapping(); };
+
+$('btn-savemap').onclick = async () => {
+  const body = {system:$('system').value, entries:mapping,
+    interval_ms:parseInt($('interval').value), n_points:parseInt($('npoints').value)};
+  const r = await post('/api/mapping', body);
+  setMsg('msg-probe', r.ok?('已保存, 特征数='+r.n_features):('错误: '+r.error), r.ok?'ok':'bad');
+  refreshState(); loadHistory();
+};
+$('btn-probe').onclick = async () => {
+  const sel = [...document.querySelectorAll('.psel:checked')].map(c=>mapping[+c.dataset.i]);
+  const keys = (sel.length?sel:mapping).map(e=>({path:e.nclink_path,index:e.index}));
+  if(!keys.length){ setMsg('msg-probe','无可探测项','warn'); return; }
+  setMsg('msg-probe','探测中…');
+  const r = await post('/api/probe', {keys});
+  if(r.error){ setMsg('msg-probe','探测失败: '+r.error,'bad'); return; }
+  const txt = (r.values||[]).map(v=>v.path.split('@').pop().split('/').pop()+(v.index!=null?('['+v.index+']'):'')+'='+v.value).join('  ');
+  setMsg('msg-probe', (r.ok?'✓ ':'✗ ')+'状态='+r.status+'  '+txt, r.ok?'ok':'bad');
+};
+
+// ---------- 3 采集 ----------
+$('drift').oninput = async () => { $('driftval').textContent=$('drift').value; await post('/api/mock/drift',{drift:parseFloat($('drift').value)}); };
+$('btn-collect').onclick = async () => {
+  let cond={}; try{ cond=$('cond').value?JSON.parse($('cond').value):{}; }catch(e){ setMsg('msg-collect','工况JSON格式错误','bad'); return; }
+  const body={condition:cond, interval_ms:parseInt($('interval').value), n_points:parseInt($('npoints').value)};
+  if($('simday').value) body.sim_day=parseInt($('simday').value);
+  const r = await post('/api/collect/start', body);
+  if(!r.ok){ setMsg('msg-collect',r.error,'bad'); return; }
+  setMsg('msg-collect','采集中…','warn'); $('btn-collect').disabled=true; $('btn-stop').disabled=false;
+};
+$('btn-stop').onclick = () => post('/api/collect/stop');
+
+// ---------- WebSocket ----------
+function connectWS(){
+  if(!('WebSocket' in window)) return;
+  const ws = new WebSocket((location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/ws');
+  ws.onopen = ()=> $('p-ws').innerHTML='WS <b class="ok">在线</b>';
+  ws.onclose = ()=>{ $('p-ws').innerHTML='WS <b class="bad">断开</b>'; setTimeout(connectWS,2000); };
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if(m.type==='progress'){
+      const v = Object.entries(m.values||{}).slice(0,4).map(([k,val])=>k+'='+(+val).toFixed(2)).join('  ');
+      $('live').textContent = '['+m.i+'/'+m.n+'] '+v;
+      setMsg('msg-collect','采集中… '+Math.round(100*m.i/m.n)+'%','warn');
+    } else if(m.type==='done'){
+      $('btn-collect').disabled=false; $('btn-stop').disabled=true; $('live').textContent='';
+      setMsg('msg-collect','采集#'+m.collection_id+' 完成: 健康度='+(+m.health).toFixed(3)+(m.admitted?'':' (未准入基线)'), 'ok');
+      updateDashboard(m); refreshState(); loadHistory();
+    } else if(m.type==='error'){
+      $('btn-collect').disabled=false; $('btn-stop').disabled=true;
+      setMsg('msg-collect','采集出错: '+m.error,'bad');
+    }
+  };
+}
+
+// ---------- 看板 ----------
+function healthColor(h){ return h>=0.7?'var(--ok)':h>=0.4?'var(--warn)':'var(--bad)'; }
+function updateDashboard(m){
+  $('g-health').textContent = (+m.health).toFixed(3);
+  $('g-health').style.color = healthColor(m.health);
+  const stg = $('g-stage'); stg.textContent='阶段 '+m.stage+(m.blended?' (混合)':'');
+  const al = $('g-alarm');
+  if(m.alarm){ al.textContent='告警 '+m.alarm_source; al.style.background='var(--bad)'; al.style.color='#fff'; }
+  else { al.textContent='无告警'; al.style.background='var(--panel2)'; al.style.color='var(--fg)'; }
+  $('g-scores').innerHTML = 'score = <b>'+(+m.score).toFixed(3)+'</b><br>'+
+    'T² = '+(m.t2!=null?(+m.t2).toFixed(2):'—')+'　SPE = '+(m.spe!=null?(+m.spe).toFixed(2):'—')+
+    '<br>EWMA = '+(m.alarm_ewma!=null?(+m.alarm_ewma).toFixed(3):'—');
+  const d = m.detail||{};
+  if(d.top_t2||d.top_spe){
+    const fmt = arr => (arr||[]).map(x=>'<span class="chip">'+x[0]+' '+(+x[1]).toFixed(2)+'</span>').join('');
+    $('contrib').innerHTML = '<b class="muted">主导:'+(d.dominant_space||'')+'</b> T²: '+fmt(d.top_t2)+' &nbsp; SPE: '+fmt(d.top_spe);
+  }
+}
+
+function drawChart(){
+  const c=$('chart'), dpr=window.devicePixelRatio||1;
+  const W=c.clientWidth, H=170; c.width=W*dpr; c.height=H*dpr;
+  const x=c.getContext('2d'); x.scale(dpr,dpr); x.clearRect(0,0,W,H);
+  const pad=28, n=healthSeries.length;
+  // 阈值/网格
+  x.strokeStyle='#2f3b46'; x.fillStyle='#8b9aa7'; x.font='10px sans-serif'; x.lineWidth=1;
+  [0,0.4,0.7,1].forEach(v=>{ const y=H-pad-(H-2*pad)*v; x.beginPath(); x.moveTo(pad,y); x.lineTo(W-6,y); x.stroke(); x.fillText(v.toFixed(1),4,y+3); });
+  if(n===0){ x.fillText('暂无数据',W/2-24,H/2); return; }
+  const px = i => pad + (W-pad-10)*(n<=1?0.5:i/(n-1));
+  const py = v => H-pad-(H-2*pad)*Math.max(0,Math.min(1,v));
+  // 健康度折线
+  x.strokeStyle='#4aa3ff'; x.lineWidth=2; x.beginPath();
+  healthSeries.forEach((p,i)=>{ const X=px(i),Y=py(p.health); i?x.lineTo(X,Y):x.moveTo(X,Y); }); x.stroke();
+  // 点 + 告警标红
+  healthSeries.forEach((p,i)=>{ x.beginPath(); x.fillStyle=p.alarm?'#ef4d4d':healthColor(p.health);
+    x.arc(px(i),py(p.health),p.alarm?3.5:2.5,0,7); x.fill(); });
+}
+
+async function loadHistory(){
+  const r = await api('/api/collections'); const rows=r.rows||[];
+  healthSeries = rows.filter(x=>x.health!=null).map(x=>({health:x.health, score:x.score, stage:x.stage, alarm:(x.alarm_l1||x.alarm_l2)}));
+  drawChart();
+  $('hist-body').innerHTML = rows.slice().reverse().slice(0,60).map(x=>{
+    const h=x.health!=null?(+x.health).toFixed(3):'—';
+    const al=(x.alarm_l1||x.alarm_l2)?'<span class="bad">●</span>':'';
+    const cond=Object.entries(x.condition||{}).filter(([k])=>!['system','program_id'].includes(k)).map(([k,v])=>k+':'+v).join(' ');
+    return '<tr><td>'+x.id+'</td><td>'+x.day+'</td><td>'+(x.stage||'')+'</td>'+
+      '<td style="color:'+healthColor(x.health||0)+'">'+h+'</td><td>'+(x.score!=null?(+x.score).toFixed(2):'—')+'</td>'+
+      '<td>'+al+(x.admitted===0?'<span class="warn tag">未准入</span>':'')+'</td><td class="muted">'+cond+'</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">暂无</td></tr>';
+  // 末条刷看板
+  const last = rows.filter(x=>x.health!=null).pop();
+  if(last) updateDashboard({health:last.health, score:last.score, stage:last.stage,
+    alarm:(last.alarm_l1||last.alarm_l2), t2:last.t2, spe:last.spe, alarm_source:(last.alarm_l1?'L1':last.alarm_l2?'L2':''), detail:{}});
+}
+$('btn-refresh').onclick = loadHistory;
+window.addEventListener('resize', drawChart);
+
+// init
+refreshState(); loadHistory(); connectWS();
+setInterval(refreshState, 5000);
+</script>
+</body>
+</html>

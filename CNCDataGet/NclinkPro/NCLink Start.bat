@@ -1,0 +1,1 @@
+java -jar nclink-api-Server-1.0.0.jar -Dspring.config.location=./application.yml

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>机床健康基线 · 中心看板</title>
+  <link rel="stylesheet" href="/static/dashboard/styles.css">
+</head>
+<body data-layer="operator">
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <div class="brand">机床健康基线</div>
+    <select id="machineSel" class="machine-sel" aria-label="选择机床"></select>
+    <span id="machineMeta" class="machine-meta"></span>
+    <div class="spacer"></div>
+    <span id="clock" class="clock"></span>
+    <button id="refreshBtn" class="icon-btn" title="刷新">⟳</button>
+    <span id="conn" class="conn online" title="连接状态">在线</span>
+    <button id="layerBtn" class="layer-btn" title="切换操作工/工程视图">工程视图</button>
+  </header>
+
+  <!-- 侧栏导航 (手机下变底部 tab) -->
+  <nav class="nav" id="nav">
+    <button class="nav-item active" data-page="overview"><span class="ico">●</span><span>总览</span></button>
+    <button class="nav-item eng" data-page="diagnose"><span class="ico">◑</span><span>系统诊断</span></button>
+    <button class="nav-item" data-page="baseline"><span class="ico">⟳</span><span>维护·基线</span></button>
+    <button class="nav-item" data-page="trend"><span class="ico">∿</span><span>趋势·历史</span></button>
+    <button class="nav-item eng" data-page="settings"><span class="ico">⚙</span><span>工程设置</span></button>
+  </nav>
+
+  <main class="main" id="main"><div class="loading">加载中…</div></main>
+
+  <script src="/static/dashboard/app.js"></script>
+</body>
+</html>

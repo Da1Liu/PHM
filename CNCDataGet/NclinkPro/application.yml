@@ -1,0 +1,46 @@
+server:
+  port: 19001
+mqtt:
+  url: tcp://127.0.0.1:1883
+  #url: tcp://10.3.5.2:1883
+  user:
+  password:
+rest:
+  template:
+    conn:
+      connect-timeout: 60000
+      read-timeout: 60000
+sample:
+  cache:
+    max: 100
+    timeout: 10000
+  client:
+    timeout: 600000
+spring:
+  application:
+    name: API-Server
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      enabled: true
+      max-request-size: 50MB
+  thymeleaf:
+    prefix: classpath:/templates/
+#  file:
+#    path: logs
+eureka:
+  client:
+    service-url:
+      defaultZone: http://10.1.20.155:19004/eureka/
+  instance:
+    prefer-ip-address: true
+    lease-expiration-duration-in-seconds: 2
+    lease-renewal-interval-in-seconds: 1
+logging:
+  #日志文件
+  file:
+    #使用相对路径,就会在项目根目录下生成一个info.log文件
+    name: logs/info.log
+  #日志级别 root表示所有包，也可以单独配置具体 fatal error warn info debug trace off
+  level:
+    root: info

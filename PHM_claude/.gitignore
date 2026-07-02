@@ -1,0 +1,7 @@
+# 本地密钥 / 环境配置 — 含 DB 口令, 不进版本库 (模板见 .env.example)
+.env
+
+# Python 运行产物
+__pycache__/
+*.pyc
+outputs/

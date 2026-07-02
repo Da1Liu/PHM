@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>采集信号清单 · 机床监测</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .wrap { max-width: 1180px; margin: 0 auto; padding: 18px; }
+    .statusbar {
+      display: flex; flex-wrap: wrap; gap: 18px 26px; align-items: center;
+      background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 14px 20px; margin-bottom: 18px;
+    }
+    .statusbar .kv { font-size: 13px; color: #94a3b8; }
+    .statusbar .kv b { color: #e2e8f0; font-weight: 600; }
+    .statusbar .err { color: #f87171; }
+    .panel { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 6px 20px 16px; margin-bottom: 18px; }
+    .panel > h2 {
+      font-size: 15px; color: #cbd5e1; margin: 14px 0 10px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    }
+    .panel > h2 .meta { font-size: 12px; color: #64748b; font-weight: 400; }
+    table.sig { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.sig th, table.sig td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #263243; }
+    table.sig th { color: #64748b; font-weight: 600; font-size: 12px; position: sticky; top: 0; background: #1e293b; }
+    table.sig td.col { color: #7dd3fc; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+    table.sig td.node { color: #94a3b8; font-family: ui-monospace, Consolas, monospace; font-size: 12px; word-break: break-all; }
+    table.sig td.val { font-variant-numeric: tabular-nums; font-weight: 600; }
+    table.sig td.val.na { color: #475569; font-weight: 400; }
+    table.sig tr.derived td { opacity: .78; }
+    .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; }
+    .pill-type { background: #0f2436; color: #7dd3fc; }
+    .pill-derived { background: #422006; color: #fbbf24; margin-left: 6px; }
+    .muted { color: #64748b; font-size: 12px; }
+    a.navlink { color: #60a5fa; font-size: 13px; text-decoration: none; margin-left: 16px; }
+    .refreshctl { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #94a3b8; }
+    select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">采集信号清单 <span class="tag">采了哪些变量</span></div>
+    <div class="controls">
+      <span id="conn" class="conn conn-unknown">● 加载中…</span>
+      <a class="navlink" href="/">← 返回看板</a>
+      <a class="navlink" href="/config.html">⚙ 采集配置</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="statusbar" id="opcuaStatus">
+      <span class="kv">加载 OPC UA 信号清单…</span>
+    </div>
+
+    <div id="opcuaGroups"></div>
+
+    <div class="panel">
+      <h2>振动采集（NI-DAQmx，C# 采集器） <span class="meta" id="vibParams"></span></h2>
+      <table class="sig" id="vibChannels">
+        <thead><tr><th style="width:70px">通道</th><th>物理通道</th><th style="width:160px">灵敏度 (mV/g)</th></tr></thead>
+        <tbody><tr><td colspan="3" class="muted">加载中…</td></tr></tbody>
+      </table>
+      <h2 style="margin-top:18px">每窗每通道落盘的特征列 <span class="meta">vib_features · 7 项统计量</span></h2>
+      <p class="muted" style="margin:0 0 10px">
+        mean（均值）· rms（有效值）· peak（峰值）· p2p（峰峰值）· std（标准差）· kurtosis（峭度）· crest（峰值因子）。
+        下表为各通道最新一窗实测值：
+      </p>
+      <table class="sig" id="vibLatest">
+        <thead><tr>
+          <th style="width:70px">通道</th><th style="width:190px">最新采样时间</th>
+          <th>RMS</th><th>峰值</th><th>峰峰值</th><th>标准差</th><th>峭度</th><th>峰值因子</th>
+        </tr></thead>
+        <tbody><tr><td colspan="8" class="muted">加载中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="signals.js"></script>
+</body>
+</html>

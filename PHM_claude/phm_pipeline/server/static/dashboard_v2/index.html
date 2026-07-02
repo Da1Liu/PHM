@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>机床健康基线 · 原型 v2 (静态)</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body data-role="engineer" data-view="fleet">
+  <header class="topbar">
+    <div class="brand" id="brand">机床健康基线<small>原型 v2 · 静态占位</small></div>
+    <select id="machineSel" class="mach-sel" aria-label="选择机床"></select>
+    <div class="spacer"></div>
+    <span class="kbd" id="kbd"><b>⌘K</b> 快速跳转</span>
+    <span class="clock mono" id="clock">--:--:--</span>
+    <span class="conn online" id="conn"><span class="dot green" style="width:8px;height:8px"></span>在线</span>
+    <button class="role-btn" id="roleBtn">当前:工程师 ▾</button>
+  </header>
+
+  <div id="sysbar" class="sysbar" hidden></div>
+
+  <main class="app" id="app"><div class="loading">加载中…</div></main>
+
+  <!-- 命令面板 ⌘K -->
+  <div class="palette" id="palette" hidden>
+    <div class="box">
+      <input id="palInput" placeholder="跳转机床 / 页面…" autocomplete="off">
+      <div id="palList"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

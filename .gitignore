@@ -1,0 +1,69 @@
+﻿# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/appsettings.json
+!**/appsettings.example.json
+**/.claude/settings.local.json
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+PHM_claude/outputs/
+CNCDataGet/数据采集/dataget/
+
+# Node dependencies and logs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# .NET / Visual Studio artifacts
+.vs/
+bin/
+obj/
+*.user
+*.suo
+*.cache
+
+# Local data, replay dumps, and generated databases
+PHM_claude/data/
+_integration_probe/*.csv
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+**/logs/
+CNCDataGet/数据采集/data/
+
+# Installers and local vendor packages
+*.exe
+*.msi
+*.zip
+*.7z
+*.rar
+*.nupkg
+packages/
+
+# Temporary lock files
+*.lck
+
+
+# Deprecated or non-product local material
+数控机床数据采集与状态监测系统/WindowsFormsApp1/
+_integration_probe/*
+!_integration_probe/
+!_integration_probe/*.sql
+* - 副本.*

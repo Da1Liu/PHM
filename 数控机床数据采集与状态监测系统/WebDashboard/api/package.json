@@ -1,0 +1,23 @@
+{
+  "name": "machine-dashboard-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "只读趋势看板 API —— 数控机床采集落库模块 (Phase 1)",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "opcua-test-server": "node src/devtools/opcua-test-server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "node-opcua": "^2.134.0",
+    "pg": "^8.13.1"
+  },
+  "overrides": {
+    "hexy": "0.3.5"
+  }
+}

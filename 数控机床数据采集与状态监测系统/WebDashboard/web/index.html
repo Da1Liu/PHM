@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>机床实时采集 · 可配置看板</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">数控机床 · 实时采集看板 <span class="tag">可配置</span></div>
+    <div class="controls">
+      <label>时间范围
+        <select id="rangeSelect">
+          <option value="5">近 5 分钟</option>
+          <option value="15" selected>近 15 分钟</option>
+          <option value="60">近 1 小时</option>
+          <option value="0">全部</option>
+        </select>
+      </label>
+      <label>刷新
+        <select id="refreshSelect">
+          <option value="0">关闭</option>
+          <option value="2000" selected>2 秒</option>
+          <option value="5000">5 秒</option>
+          <option value="10000">10 秒</option>
+        </select>
+      </label>
+      <span id="conn" class="conn conn-unknown">● 连接中…</span>
+      <button id="exportBtn" class="btn btn-cap">⬇ 数据导出</button>
+      <a href="/signals.html" style="color:#60a5fa;font-size:13px;text-decoration:none;">📋 采集信号清单</a>
+      <a href="/config.html" style="color:#60a5fa;font-size:13px;text-decoration:none;">⚙ 采集配置</a>
+    </div>
+  </header>
+
+  <section class="ctrlbar">
+    <div class="ctrlgroup">
+      <span class="ctrltitle">OPC UA 状态量采集</span>
+      <span id="opcuaBadge" class="badge badge-off">未知</span>
+      <button id="opcuaStart" class="btn btn-go">开始</button>
+      <button id="opcuaStop" class="btn btn-stop">停止</button>
+      <span id="opcuaInfo" class="ctrlinfo"></span>
+    </div>
+    <div class="ctrlgroup">
+      <span class="ctrltitle">NI 振动采集</span>
+      <span id="niBadge" class="badge badge-off">未知</span>
+      <button id="niStart" class="btn btn-go">开始</button>
+      <button id="niStop" class="btn btn-stop">停止</button>
+      <button id="niCapture" class="btn btn-cap">📸 抓取波形</button>
+      <span id="niInfo" class="ctrlinfo"></span>
+    </div>
+  </section>
+
+  <section class="chartbar">
+    <button id="addChartBtn" class="btn btn-go">＋ 添加图表</button>
+    <span class="chartbar-hint">每个图表可自选信号（振动特征 / OPC UA 状态量），数量可自由增删，布局自动保存</span>
+    <span class="spacer"></span>
+    <button id="resetLayoutBtn" class="btn">↺ 重置布局</button>
+  </section>
+
+  <main id="chartGrid" class="grid"></main>
+
+  <section class="card waveform-card">
+    <h2>振动波形（原始抓取块）
+      <select id="vibEvent" class="inline"></select>
+      <button id="exportBlockBtn" class="btn btn-cap inline-btn">⬇ 导出此块</button>
+    </h2>
+    <div id="chartVib" class="chart"></div>
+  </section>
+
+  <footer class="footer">数据源：PostgreSQL · vibration_db ｜ 落盘：特征常驻 + 事件/手动原始块 ｜ 时间轴自动对齐多源信号</footer>
+
+  <!-- 信号选择弹窗 -->
+  <div id="signalModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <span id="signalModalTitle">选择信号</span>
+        <button class="modal-x" data-close="signalModal">✕</button>
+      </div>
+      <input id="signalSearch" class="modal-search" placeholder="搜索信号名…" />
+      <div id="signalModalBody" class="modal-body"></div>
+      <div class="modal-foot">
+        <span id="signalCount" class="modal-foot-hint"></span>
+        <span class="spacer"></span>
+        <button class="btn" data-close="signalModal">取消</button>
+        <button id="signalModalApply" class="btn btn-go">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 数据导出弹窗 -->
+  <div id="exportModal" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <span>数据导出 · CSV + 元数据（供 ML 算法验证）</span>
+        <button class="modal-x" data-close="exportModal">✕</button>
+      </div>
+      <div class="modal-body export-body">
+        <div class="exp-sec">
+          <h3>① 原始抓取块 <span class="exp-tbl">vib_raw_blocks</span></h3>
+          <div class="exp-row">
+            <select id="expEvent"></select>
+            <button class="btn btn-cap" id="expBlockGo">导出 CSV</button>
+          </div>
+          <div class="exp-hint">单次手动/事件抓取的完整 float32 原始波形（采样点 × 通道），含采样率/通道元数据。</div>
+        </div>
+        <div class="exp-sec">
+          <h3>② 振动特征流 <span class="exp-tbl">vib_features</span></h3>
+          <div class="exp-row">
+            <label>通道</label>
+            <input id="expFeatCh" placeholder="留空=全部，如 1,2" />
+            <button class="btn btn-cap" id="expFeatGo">导出 CSV</button>
+          </div>
+          <div class="exp-hint">每窗每通道 RMS/峰值/峭度等 7 项统计量——算法核直接消费层。按上方时间范围导出。</div>
+        </div>
+        <div class="exp-sec">
+          <h3>③ OPC UA 状态量 <span class="exp-tbl">_OPCUA_2 / _3 / _new</span></h3>
+          <div class="exp-row">
+            <select id="expOpcTable">
+              <option value="opcua2">主轴（_OPCUA_2）</option>
+              <option value="opcua3">各轴 + 油泵（_OPCUA_3）</option>
+              <option value="opcuanew">坐标（_OPCUA_new）</option>
+            </select>
+            <label>抽稀上限</label>
+            <input id="expOpcMax" placeholder="留空=全部" style="width:120px" />
+            <button class="btn btn-cap" id="expOpcGo">导出 CSV</button>
+          </div>
+          <div class="exp-hint">低频状态量整段导出，用于协变量回归 / 工况分层验证。按上方时间范围导出。</div>
+        </div>
+        <div class="exp-foot-hint">
+          时间范围跟随顶部「时间范围」（选「全部」=不限）。CSV 顶部 <code>#</code> 注释行内含 JSON 元数据
+          （首行 <code># META: {…}</code> 机器可解析）。读取：<code>pandas.read_csv(path, comment='#')</code>
+          或 <code>numpy.genfromtxt(path, delimiter=',', skip_header=4)</code>（4 = 3 注释行 + 1 列名行）。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,883 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>多传感器协方差健康基线验证解读</title>
+  <style>
+    :root {
+      --bg: #f6f7f4;
+      --ink: #1f2933;
+      --muted: #5f6b76;
+      --line: #d8ded7;
+      --panel: #ffffff;
+      --teal: #0f766e;
+      --teal-soft: #d9f0ed;
+      --amber: #b7791f;
+      --amber-soft: #f7ead2;
+      --blue: #365c9f;
+      --blue-soft: #dfe8f7;
+      --red: #b64242;
+      --red-soft: #f4dddd;
+      --green: #27764f;
+      --green-soft: #dcf0e5;
+      --shadow: 0 16px 40px rgba(31, 41, 51, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.68;
+    }
+
+    a { color: inherit; }
+    .wrap {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .hero {
+      min-height: 520px;
+      display: flex;
+      align-items: center;
+      color: white;
+      background:
+        linear-gradient(90deg, rgba(19, 46, 56, 0.92), rgba(32, 63, 75, 0.62)),
+        url("outputs/step7_multisensor_covariance/healthy_correlation_heatmap.png");
+      background-size: cover;
+      background-position: center;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+
+    .hero h1 {
+      max-width: 860px;
+      margin: 0 0 18px;
+      font-size: clamp(34px, 6vw, 68px);
+      line-height: 1.06;
+      letter-spacing: 0;
+    }
+
+    .hero p {
+      max-width: 790px;
+      margin: 0 0 26px;
+      font-size: clamp(17px, 2vw, 22px);
+      color: rgba(255,255,255,0.88);
+    }
+
+    .hero .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 12px;
+      border: 1px solid rgba(255,255,255,0.34);
+      border-radius: 999px;
+      color: rgba(255,255,255,0.92);
+      background: rgba(255,255,255,0.09);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(246, 247, 244, 0.94);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(10px);
+    }
+
+    .nav .wrap {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 10px 0;
+    }
+
+    .nav a {
+      flex: 0 0 auto;
+      padding: 8px 12px;
+      border-radius: 6px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .nav a:hover {
+      color: var(--ink);
+      background: white;
+    }
+
+    section {
+      padding: 58px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    section.alt { background: #ffffff; }
+    h2 {
+      margin: 0 0 16px;
+      font-size: clamp(26px, 3vw, 38px);
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 20px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 860px;
+      margin: 0 0 26px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
+    }
+
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+
+    .panel,
+    .metric,
+    .step,
+    .model,
+    .callout {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel { padding: 22px; }
+    .metric { padding: 18px; }
+    .metric .value {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 32px;
+      line-height: 1.05;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    .metric .label {
+      display: block;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .metric.teal { border-top: 5px solid var(--teal); }
+    .metric.amber { border-top: 5px solid var(--amber); }
+    .metric.blue { border-top: 5px solid var(--blue); }
+    .metric.red { border-top: 5px solid var(--red); }
+
+    .formula {
+      margin: 18px 0;
+      padding: 18px;
+      border: 1px solid #b9c9c6;
+      border-radius: 8px;
+      background: #eef6f4;
+      font-family: Consolas, "Courier New", monospace;
+      color: #163a37;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .plain-list {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .plain-list li { margin: 8px 0; }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .step {
+      min-height: 168px;
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .step .num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      margin-bottom: 12px;
+      border-radius: 50%;
+      background: var(--teal-soft);
+      color: var(--teal);
+      font-weight: 800;
+    }
+
+    .step p,
+    .panel p,
+    .model p,
+    .callout p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .mapping {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.4fr;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: white;
+    }
+
+    .mapping div {
+      padding: 12px 14px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .mapping div:nth-child(3n) { border-right: 0; }
+    .mapping .head {
+      background: #eef2f0;
+      color: #39444d;
+      font-weight: 700;
+    }
+
+    .models {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .model {
+      padding: 18px;
+      min-height: 174px;
+    }
+
+    .tag {
+      display: inline-flex;
+      margin-bottom: 10px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #1f2933;
+      background: #edf0ed;
+    }
+    .tag.bad { background: var(--red-soft); color: var(--red); }
+    .tag.ok { background: var(--green-soft); color: var(--green); }
+    .tag.warn { background: var(--amber-soft); color: var(--amber); }
+    .tag.best { background: var(--blue-soft); color: var(--blue); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      font-size: 15px;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: #39444d;
+      background: #eef2f0;
+      font-weight: 700;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(130px, 220px) 1fr 74px;
+      align-items: center;
+      gap: 12px;
+      margin: 12px 0;
+    }
+
+    .track {
+      height: 14px;
+      border-radius: 999px;
+      background: #e6ebe6;
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--teal);
+    }
+
+    .bar.blue { background: var(--blue); }
+    .bar.amber { background: var(--amber); }
+    .bar.red { background: var(--red); }
+
+    .figure {
+      margin: 18px 0 0;
+      background: white;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: white;
+    }
+
+    .caption {
+      padding: 10px 14px;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      font-size: 14px;
+    }
+
+    .callout {
+      padding: 20px;
+      border-left: 6px solid var(--teal);
+      box-shadow: none;
+    }
+
+    .callout.warn { border-left-color: var(--amber); background: #fffaf0; }
+    .callout.best { border-left-color: var(--blue); background: #f6f9ff; }
+    .callout.danger { border-left-color: var(--red); background: #fff7f7; }
+
+    .decision {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .decision .panel {
+      box-shadow: none;
+      min-height: 232px;
+    }
+
+    .footer {
+      padding: 32px 0 46px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .span-3, .span-4, .span-5, .span-6, .span-7, .span-8 { grid-column: span 12; }
+      .flow, .models, .decision { grid-template-columns: 1fr; }
+      .mapping { grid-template-columns: 1fr; }
+      .mapping div { border-right: 0; }
+      .bar-row { grid-template-columns: 1fr; gap: 6px; }
+      .hero { min-height: 620px; }
+    }
+
+    @media print {
+      .nav { position: static; }
+      .hero { min-height: auto; padding: 70px 0; }
+      .panel, .metric, .step, .model, .figure { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <h1>多传感器协方差健康基线验证，门外汉版</h1>
+      <p>这份计划不是在问“某一个传感器有没有超标”，而是在验证：一台设备健康时，压力、流量、温度、振动、功率之间会不会形成一套稳定的搭配关系；当这种搭配关系变了，模型能不能发现。</p>
+      <div class="meta">
+        <span class="pill">原文：multisensor_covariance_baseline_validation_plan.md</span>
+        <span class="pill">数据：UCI Hydraulic</span>
+        <span class="pill">已执行：Step 7 / Step 8 / Step 9</span>
+      </div>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <div class="wrap">
+      <a href="#idea">核心想法</a>
+      <a href="#data">数据怎么来</a>
+      <a href="#route">怎么验证</a>
+      <a href="#models">模型对照</a>
+      <a href="#numbers">数据含义</a>
+      <a href="#relationship">关系异常</a>
+      <a href="#verdict">最终判断</a>
+      <a href="#glossary">术语速查</a>
+    </div>
+  </nav>
+
+  <section id="idea">
+    <div class="wrap">
+      <h2>1. 先把问题讲成人话</h2>
+      <p class="lead">传统阈值像是在看体检单上每个指标有没有单独超标。协方差健康基线看的是这些指标之间的“正常组合方式”。有些异常不会让任何一个指标明显越界，但会让指标之间的配合方式变得不正常。</p>
+
+      <div class="grid">
+        <div class="panel span-6">
+          <h3>单变量阈值在做什么</h3>
+          <p>逐个看传感器。例如压力不能超过某个值，温度不能超过某个值，振动不能超过某个值。优点是简单；缺点是看不懂“它们之间原本应该怎样一起变化”。</p>
+        </div>
+        <div class="panel span-6">
+          <h3>协方差基线在做什么</h3>
+          <p>把多个传感器合成一个状态向量，学习健康时这个向量通常落在哪里、各维度怎么一起变化。新样本如果离这个健康分布很远，就给高异常分。</p>
+        </div>
+      </div>
+
+      <div class="formula">健康状态向量 x = [压力, 流量, 功率, 振动, 温度, ...]
+健康基线 = 健康样本的平均状态 mu + 健康样本的协方差 Sigma
+异常分数 D2 = 当前状态离健康分布有多远</div>
+
+      <div class="callout">
+        <h3>最关键的一句话</h3>
+        <p>这个路线想证明的是：设备健康不只是“每个传感器都正常”，还包括“多个传感器之间的关系正常”。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="data" class="alt">
+    <div class="wrap">
+      <h2>2. 为什么用 UCI Hydraulic 数据</h2>
+      <p class="lead">项目里已经有液压系统数据。它不是主轴数据，但它有压力、流量、温度、振动、功率等多类传感器，适合先验证“多传感器联合建模”这条数学和工程路线。</p>
+
+      <div class="mapping">
+        <div class="head">主轴里关心的东西</div>
+        <div class="head">这里用什么代理</div>
+        <div class="head">为什么有用</div>
+        <div>振动</div><div>VS1</div><div>代表机械动态状态。</div>
+        <div>温度</div><div>TS1、TS2</div><div>代表热状态或油温变化。</div>
+        <div>电流/功率</div><div>EPS1</div><div>代表驱动负载代理。</div>
+        <div>载荷/压力</div><div>PS1、PS2、PS3</div><div>代表系统负载和执行状态。</div>
+        <div>流量/效率</div><div>FS1、FS2、SE、q_over_p</div><div>代表泄漏、损耗和效率变化。</div>
+      </div>
+
+      <div class="grid" style="margin-top:18px;">
+        <div class="metric teal span-3">
+          <span class="value">489</span>
+          <span class="label">本次筛选后的总样本数</span>
+        </div>
+        <div class="metric blue span-3">
+          <span class="value">169</span>
+          <span class="label">pump=0，作为健康样本池</span>
+        </div>
+        <div class="metric amber span-3">
+          <span class="value">320</span>
+          <span class="label">pump=1/2，作为泄漏异常样本</span>
+        </div>
+        <div class="metric red span-3">
+          <span class="value">14</span>
+          <span class="label">第一轮使用的传感器特征数</span>
+        </div>
+      </div>
+
+      <div class="callout warn" style="margin-top:18px;">
+        <h3>为什么不是直接拿“完全健康系统”训练</h3>
+        <p>原始数据里四个部件同时处于最优状态的样本太少，只有 10 条，不够训练 10 多维的协方差矩阵。所以计划改成受控子任务：固定 cooler=100 和 stable=0，只验证泵泄漏变化。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="route">
+    <div class="wrap">
+      <h2>3. 这条路线具体怎么验证</h2>
+      <p class="lead">验证不是一次跑模型就结束，而是分成几道关。每一道关都在回答一个更具体的问题。</p>
+
+      <div class="flow">
+        <div class="step">
+          <span class="num">1</span>
+          <h3>固定场景</h3>
+          <p>只取 cooler=100、stable=0，减少其他工况混淆。</p>
+        </div>
+        <div class="step">
+          <span class="num">2</span>
+          <h3>提取特征</h3>
+          <p>每个 60 秒 cycle 提取压力、流量、功率、振动、温度等统计值。</p>
+        </div>
+        <div class="step">
+          <span class="num">3</span>
+          <h3>建立健康基线</h3>
+          <p>用 pump=0 的前 60% 样本估计健康均值和协方差。</p>
+        </div>
+        <div class="step">
+          <span class="num">4</span>
+          <h3>设定告警线</h3>
+          <p>用 pump=0 的后 40% 健康样本校准阈值和误报率。</p>
+        </div>
+        <div class="step">
+          <span class="num">5</span>
+          <h3>上线测试</h3>
+          <p>把健康校准样本和 pump=1/2 泄漏样本放进来，看谁能区分。</p>
+        </div>
+      </div>
+
+      <div class="figure">
+        <img src="outputs/step7_multisensor_covariance/feature_distributions_by_pump.png" alt="不同泵泄漏等级下的多传感器特征分布">
+        <div class="caption">特征分布图：横轴 pump=0/1/2，纵轴是各传感器特征。很多压力、流量、效率特征会随泄漏等级改变。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="models" class="alt">
+    <div class="wrap">
+      <h2>4. 为什么要比较这么多模型</h2>
+      <p class="lead">如果只跑一个协方差模型，即使效果好，也不知道它是因为真正学到了传感器关系，还是因为某一个单变量本来就很容易分。对照模型就是为了拆开这个问题。</p>
+
+      <div class="models">
+        <div class="model">
+          <span class="tag bad">M0</span>
+          <h3>单变量阈值</h3>
+          <p>只看每个变量自己有没有偏离。它是最传统、最简单的基线。</p>
+        </div>
+        <div class="model">
+          <span class="tag warn">M1</span>
+          <h3>对角协方差</h3>
+          <p>把多个变量合在一起打分，但假设变量之间互不相关。</p>
+        </div>
+        <div class="model">
+          <span class="tag ok">M2</span>
+          <h3>完整协方差</h3>
+          <p>使用变量之间的相关关系，但矩阵不稳定时会有工程风险。</p>
+        </div>
+        <div class="model">
+          <span class="tag ok">M3</span>
+          <h3>正则化协方差</h3>
+          <p>给完整协方差加一点稳定项，降低矩阵病态风险。</p>
+        </div>
+        <div class="model">
+          <span class="tag best">M5</span>
+          <h3>PCA + T2 + SPE</h3>
+          <p>先提取主要共变模式，再同时看主成分异常和残差异常。</p>
+        </div>
+        <div class="model">
+          <span class="tag bad">M6</span>
+          <h3>打乱相关结构</h3>
+          <p>故意破坏健康样本的传感器关系，检查收益是不是来自真实相关结构。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="numbers">
+    <div class="wrap">
+      <h2>5. 关键数据怎么读</h2>
+      <p class="lead">下面这些数字是理解结论的核心。先看健康样本里有没有传感器关系，再看模型能不能利用这种关系。</p>
+
+      <div class="grid">
+        <div class="metric teal span-4">
+          <span class="value">0.331</span>
+          <span class="label">offdiag_abs_mean：平均跨特征相关强度，不接近 0，说明传感器之间确实有关系。</span>
+        </div>
+        <div class="metric blue span-4">
+          <span class="value">0.996</span>
+          <span class="label">offdiag_abs_max：最强相关几乎到 1，说明某些特征高度绑定。</span>
+        </div>
+        <div class="metric red span-4">
+          <span class="value">1.12e8</span>
+          <span class="label">condition_number：矩阵严重病态，不适合裸用完整协方差求逆。</span>
+        </div>
+      </div>
+
+      <div class="figure">
+        <img src="outputs/step7_multisensor_covariance/healthy_correlation_heatmap.png" alt="健康样本相关矩阵热力图">
+        <div class="caption">健康相关矩阵：红蓝色块越明显，说明变量之间越不是独立的。协方差路线正是利用这些关系。</div>
+      </div>
+
+      <h3 style="margin-top:34px;">第一轮真实泄漏检测：所有模型都很好，但还不能证明协方差更好</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>结果</th>
+            <th>数值</th>
+            <th>门外汉解释</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>所有模型 AUC</td>
+            <td class="num">1.000</td>
+            <td>AUC=1 表示健康和泄漏完全可分。但这也说明任务太容易。</td>
+          </tr>
+          <tr>
+            <td>Spearman</td>
+            <td class="num">0.924</td>
+            <td>异常分越高，泵泄漏等级越严重，单调关系很好。</td>
+          </tr>
+          <tr>
+            <td>校准误报率 FAR</td>
+            <td class="num">1.47%</td>
+            <td>健康校准样本中误报很低，低于 5% 的目标。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn" style="margin-top:18px;">
+        <h3>为什么“全部 AUC=1”反而不够</h3>
+        <p>因为 q_over_p、fs1_mean、se_mean 这些单个特征已经非常强。就像病人某个指标已经明显异常，任何模型都能看出来，这不能证明“多指标关系模型”更有价值。</p>
+      </div>
+
+      <h3 style="margin-top:34px;">所以做了强单变量剔除实验</h3>
+      <p class="lead">把最容易单独区分泄漏的特征拿掉，看看模型还能不能靠传感器之间的关系做出判断。</p>
+
+      <div class="bar-row">
+        <strong>q_over_p</strong>
+        <div class="track"><div class="bar red" style="width:100%"></div></div>
+        <span>65.58</span>
+      </div>
+      <div class="bar-row">
+        <strong>fs1_mean</strong>
+        <div class="track"><div class="bar red" style="width:93%"></div></div>
+        <span>61.10</span>
+      </div>
+      <div class="bar-row">
+        <strong>se_mean</strong>
+        <div class="track"><div class="bar amber" style="width:46%"></div></div>
+        <span>29.88</span>
+      </div>
+      <div class="bar-row">
+        <strong>ps3_mean</strong>
+        <div class="track"><div class="bar amber" style="width:18%"></div></div>
+        <span>12.03</span>
+      </div>
+
+      <table style="margin-top:22px;">
+        <thead>
+          <tr>
+            <th>剔除 sep &gt; 10 后的模型</th>
+            <th class="num">AUC</th>
+            <th class="num">Spearman</th>
+            <th>含义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>PCA95 + T2 + SPE</td>
+            <td class="num">1.000</td>
+            <td class="num">0.919</td>
+            <td>最稳，强单变量拿掉后仍然能很好地区分泄漏。</td>
+          </tr>
+          <tr>
+            <td>正则化协方差 λ=0.01</td>
+            <td class="num">0.984</td>
+            <td class="num">0.910</td>
+            <td>明显优于单变量和对角模型，说明联合关系有价值。</td>
+          </tr>
+          <tr>
+            <td>完整协方差 + pinv</td>
+            <td class="num">0.978</td>
+            <td class="num">0.907</td>
+            <td>效果不错，但前面看到矩阵病态，工程上不建议裸用。</td>
+          </tr>
+          <tr>
+            <td>对角协方差</td>
+            <td class="num">0.747</td>
+            <td class="num">0.777</td>
+            <td>不看传感器关系，效果明显下降。</td>
+          </tr>
+          <tr>
+            <td>单变量 max z</td>
+            <td class="num">0.681</td>
+            <td class="num">0.719</td>
+            <td>靠单个变量已经不够。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure">
+        <img src="outputs/step8_multisensor_weak_features/weak_feature_ablation.png" alt="强单变量剔除后的模型对比">
+        <div class="caption">强单变量剔除后的对比：PCA+T2+SPE 和正则化协方差保留优势，说明模型不是只吃了某一个强特征。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="relationship" class="alt">
+    <div class="wrap">
+      <h2>6. 最关键的关系异常测试</h2>
+      <p class="lead">这一步最贴近主轴场景：每个传感器单独看都像健康样本，但传感器之间原本应该配套的关系被打乱。比如温度值本身正常，压力值本身也正常，但它们不是同一个健康 cycle 里该有的组合。</p>
+
+      <div class="callout best">
+        <h3>这个测试为什么重要</h3>
+        <p>如果单变量阈值和对角协方差看不出来，而完整/正则化协方差或 PCA 能看出来，就说明路线真的在捕捉“传感器之间的耦合关系”。</p>
+      </div>
+
+      <table style="margin-top:20px;">
+        <thead>
+          <tr>
+            <th>人为制造的关系异常</th>
+            <th class="num">单变量 AUC</th>
+            <th class="num">对角协方差 AUC</th>
+            <th class="num">PCA+T2+SPE AUC</th>
+            <th>怎么理解</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>全特征独立打乱</td>
+            <td class="num">0.564</td>
+            <td class="num">0.478</td>
+            <td class="num">0.887</td>
+            <td>单变量基本看不出，PCA 能看出大部分关系破坏。</td>
+          </tr>
+          <tr>
+            <td>温度对打乱</td>
+            <td class="num">0.555</td>
+            <td class="num">0.474</td>
+            <td class="num">0.874</td>
+            <td>温度相关关系被破坏时，联合模型明显敏感。</td>
+          </tr>
+          <tr>
+            <td>压力对打乱</td>
+            <td class="num">0.534</td>
+            <td class="num">0.506</td>
+            <td class="num">0.787</td>
+            <td>压力间的正常配合被破坏，PCA 仍有较好识别。</td>
+          </tr>
+          <tr>
+            <td>传感器块打乱</td>
+            <td class="num">0.528</td>
+            <td class="num">0.504</td>
+            <td class="num">0.737</td>
+            <td>块之间关系较弱一些，但联合模型仍优于基线。</td>
+          </tr>
+          <tr>
+            <td>仅功率打乱</td>
+            <td class="num">0.505</td>
+            <td class="num">0.507</td>
+            <td class="num">0.533</td>
+            <td>功率 EPS1 在这个子集里耦合不强，所以模型也不敏感。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="figure">
+        <img src="outputs/step9_relationship_anomaly/relationship_anomaly_comparison.png" alt="关系异常测试模型对比">
+        <div class="caption">关系异常测试：单变量和对角模型接近随机判断；PCA+T2+SPE、完整/正则化协方差在多种关系破坏场景中更强。</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="verdict">
+    <div class="wrap">
+      <h2>7. 现在应该怎么下结论</h2>
+      <p class="lead">从已执行结果看，这条路线不是“强通过”，更准确地说是“弱通过到工程可用方向明确”：协方差/多变量关系确实有价值，但工程实现不应裸用完整协方差矩阵。</p>
+
+      <div class="decision">
+        <div class="panel">
+          <span class="tag ok">通过的证据</span>
+          <h3>确实存在跨传感器关系</h3>
+          <p>健康样本的平均跨特征相关强度为 0.331，最大相关接近 0.996。这说明传感器之间不是彼此独立的。</p>
+        </div>
+        <div class="panel">
+          <span class="tag ok">通过的证据</span>
+          <h3>剔除强单变量后仍有优势</h3>
+          <p>PCA+T2+SPE 的 AUC 仍为 1.000，正则化协方差 AUC 约 0.984，明显高于单变量和对角模型。</p>
+        </div>
+        <div class="panel">
+          <span class="tag warn">工程约束</span>
+          <h3>完整协方差矩阵太病态</h3>
+          <p>condition number 达到 1.12e8，直接求逆风险很高。应优先使用 PCA+T2+SPE 或正则化协方差。</p>
+        </div>
+      </div>
+
+      <div class="callout best" style="margin-top:22px;">
+        <h3>推荐路线</h3>
+        <p>第一优先：PCA + T2 + SPE。第二优先：正则化协方差马氏距离。不推荐：裸 full covariance + pinv。不充分：单变量阈值或对角协方差。</p>
+      </div>
+
+      <div class="callout danger" style="margin-top:16px;">
+        <h3>不要误读这个结果</h3>
+        <p>这不是在证明液压泵就是主轴，也不是在证明真实主轴机理已经验证完成。它证明的是：多传感器联合健康基线这条建模路线，在一个多传感器设备数据集上有可行证据。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="glossary" class="alt">
+    <div class="wrap">
+      <h2>8. 术语速查</h2>
+      <p class="lead">读原 markdown 时，先把下面几个词对上号会轻松很多。</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>术语</th>
+            <th>门外汉解释</th>
+            <th>在本文里的意义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>健康基线</td>
+            <td>设备正常时的数据画像。</td>
+            <td>后续所有异常分数都以它为参照。</td>
+          </tr>
+          <tr>
+            <td>协方差</td>
+            <td>两个变量是不是经常一起变。</td>
+            <td>用来描述多传感器之间的正常搭配关系。</td>
+          </tr>
+          <tr>
+            <td>马氏距离</td>
+            <td>考虑变量相关关系后的“离健康状态有多远”。</td>
+            <td>距离越大，越像异常。</td>
+          </tr>
+          <tr>
+            <td>AUC</td>
+            <td>区分健康和异常的能力，0.5 约等于瞎猜，1.0 是完美区分。</td>
+            <td>评估模型能不能识别泄漏或关系异常。</td>
+          </tr>
+          <tr>
+            <td>FAR</td>
+            <td>健康样本被误判成异常的比例。</td>
+            <td>越低越好，本计划期望低于 5%。</td>
+          </tr>
+          <tr>
+            <td>Spearman</td>
+            <td>分数是否随故障等级加重而单调升高。</td>
+            <td>泵泄漏从 0 到 2 时，异常分最好也逐级变大。</td>
+          </tr>
+          <tr>
+            <td>PCA + T2 + SPE</td>
+            <td>先找主要共同变化模式，再看整体偏离和残差偏离。</td>
+            <td>当前最推荐的工程候选。</td>
+          </tr>
+          <tr>
+            <td>condition number</td>
+            <td>矩阵好不好求逆的风险指标。</td>
+            <td>这里数值很高，所以不推荐裸用完整协方差。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="wrap">
+      页面初版基于本地文件：multisensor_covariance_baseline_validation_plan.md、step7_multisensor_covariance_baseline.py、step8_multisensor_weak_feature_ablation.py、step9_multisensor_relationship_anomaly.py，以及 outputs 目录下的 CSV/PNG 结果。
+    </div>
+  </footer>
+</body>
+</html>

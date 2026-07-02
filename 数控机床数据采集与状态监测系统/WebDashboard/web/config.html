@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>采集配置 · 机床监测</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .wrap { max-width: 860px; margin: 0 auto; padding: 20px; }
+    .panel { background:#1e293b; border:1px solid #334155; border-radius:12px; padding:18px 20px; margin-bottom:18px; }
+    .panel h2 { margin:0 0 14px; font-size:15px; color:#cbd5e1; }
+    .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+    .row label { width:150px; color:#94a3b8; font-size:13px; }
+    input[type=text], input[type=number], input[type=password], select {
+      background:#0f172a; color:#e2e8f0; border:1px solid #334155; border-radius:6px; padding:6px 9px; font-size:13px; min-width:220px;
+    }
+    .chrow { display:flex; gap:10px; margin-bottom:8px; }
+    .chrow input { min-width:0; }
+    .actions { display:flex; gap:12px; align-items:center; margin-top:8px; }
+    button { background:#2563eb; color:#fff; border:0; border-radius:7px; padding:9px 18px; font-size:14px; cursor:pointer; }
+    button.secondary { background:#334155; }
+    #msg { font-size:13px; }
+    a.back { color:#60a5fa; font-size:13px; text-decoration:none; }
+    .hint { color:#64748b; font-size:12px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">采集配置 <span class="tag">替代 Form1 系统设置</span></div>
+    <div>
+      <a class="back" href="/signals.html" style="margin-right:16px;">📋 采集信号清单</a>
+      <a class="back" href="/">← 返回看板</a>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="panel">
+      <h2>振动采集（NI-DAQmx，C# 采集器读取，改后重启采集器生效）</h2>
+      <div class="row"><label>采集源</label>
+        <select id="acq_source"><option value="simulated">simulated（模拟）</option><option value="nidaq">nidaq（真实卡）</option></select>
+      </div>
+      <div class="row"><label>采样率 (Hz)</label><input type="number" id="acq_rate" /></div>
+      <div class="row"><label>每通道采样数</label><input type="number" id="acq_spc" /></div>
+      <div class="row"><label>缓冲区大小</label><input type="number" id="acq_buf" /></div>
+      <div class="row"><label>表名前缀</label><input type="text" id="acq_table" /></div>
+      <div class="row"><label>通道（物理名 / 灵敏度 mV/g）</label></div>
+      <div id="channels"></div>
+      <div class="actions"><button class="secondary" id="addCh" type="button">+ 通道</button>
+        <span class="hint">真实采集填 NI MAX 中通道名，如 Dev1/ai0</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>落盘策略（特征常驻 + 事件/手动原始块，省盘且不丢关键信息）</h2>
+      <div class="row"><label>特征窗样本数</label><input type="number" id="acq_window" placeholder="0 = 采样率（1秒/窗）" />
+        <span class="hint">每窗每通道算一行 RMS/峰值/峭度等存 vib_features</span></div>
+      <div class="row"><label>事件触发原始</label><input type="checkbox" id="acq_event" />
+        <span class="hint">某通道窗 RMS 越限自动存原始波形块</span></div>
+      <div class="row"><label>事件 RMS 阈值 (g)</label><input type="number" step="0.01" id="acq_evrms" /></div>
+    </div>
+
+    <div class="panel">
+      <h2>OPC UA（后端轮询，改后即时热重启生效）</h2>
+      <div class="row"><label>启用</label><input type="checkbox" id="opc_enabled" /></div>
+      <div class="row"><label>地址 profile</label>
+        <select id="opc_profile"><option value="kepserver">kepserver（KEPServer 标签）</option><option value="machine">machine（机床 Siemens）</option></select>
+      </div>
+      <div class="row"><label>Endpoint</label><input type="text" id="opc_endpoint" placeholder="opc.tcp://主机:49320" /></div>
+      <div class="row"><label>匿名登录</label><input type="checkbox" id="opc_anon" /></div>
+      <div class="row"><label>账号</label><input type="text" id="opc_user" /></div>
+      <div class="row"><label>密码</label><input type="password" id="opc_pwd" /></div>
+      <div class="row"><label>轮询间隔 (ms)</label><input type="number" id="opc_poll" /></div>
+    </div>
+
+    <div class="actions">
+      <button id="save" type="button">保存</button>
+      <button class="secondary" id="reload" type="button">重新载入</button>
+      <span id="msg"></span>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    function chRow(c = { physicalChannel: '', sensitivityMvPerG: 98.94 }) {
+      const div = document.createElement('div');
+      div.className = 'chrow';
+      div.innerHTML = `<input type="text" class="ch-name" value="${c.physicalChannel}" placeholder="Dev1/ai0" />
+        <input type="number" step="0.01" class="ch-sens" value="${c.sensitivityMvPerG}" style="min-width:120px" />
+        <button class="secondary ch-del" type="button">删</button>`;
+      div.querySelector('.ch-del').onclick = () => div.remove();
+      return div;
+    }
+    async function load() {
+      const c = await (await fetch('/api/config')).json();
+      $('acq_source').value = c.acquisition.source;
+      $('acq_rate').value = c.acquisition.rate;
+      $('acq_spc').value = c.acquisition.samplesPerChannel;
+      $('acq_buf').value = c.acquisition.inputBufferSize;
+      $('acq_table').value = c.acquisition.tableBaseName;
+      $('acq_window').value = c.acquisition.featureWindowSamples ?? 0;
+      $('acq_event').checked = !!c.acquisition.eventEnabled;
+      $('acq_evrms').value = c.acquisition.eventRmsThresholdG ?? 0;
+      const box = $('channels'); box.innerHTML = '';
+      (c.acquisition.channels || []).forEach((ch) => box.appendChild(chRow(ch)));
+      $('opc_enabled').checked = !!c.opcua.enabled;
+      $('opc_profile').value = c.opcua.profile;
+      $('opc_endpoint').value = c.opcua.endpoint;
+      $('opc_anon').checked = !!c.opcua.anonymous;
+      $('opc_user').value = c.opcua.username;
+      $('opc_pwd').value = c.opcua.password;
+      $('opc_poll').value = c.opcua.pollIntervalMs;
+      msg('已载入', '#22c55e');
+    }
+    function collectChannels() {
+      return [...document.querySelectorAll('#channels .chrow')].map((r) => ({
+        physicalChannel: r.querySelector('.ch-name').value.trim(),
+        sensitivityMvPerG: Number(r.querySelector('.ch-sens').value),
+      })).filter((c) => c.physicalChannel);
+    }
+    function msg(t, color) { const m = $('msg'); m.textContent = t; m.style.color = color || '#94a3b8'; }
+    async function save() {
+      const body = {
+        acquisition: {
+          source: $('acq_source').value,
+          rate: Number($('acq_rate').value),
+          samplesPerChannel: Number($('acq_spc').value),
+          inputBufferSize: Number($('acq_buf').value),
+          tableBaseName: $('acq_table').value.trim(),
+          featureWindowSamples: Number($('acq_window').value) || 0,
+          eventEnabled: $('acq_event').checked,
+          eventRmsThresholdG: Number($('acq_evrms').value) || 0,
+          channels: collectChannels(),
+        },
+        opcua: {
+          enabled: $('opc_enabled').checked,
+          profile: $('opc_profile').value,
+          endpoint: $('opc_endpoint').value.trim(),
+          anonymous: $('opc_anon').checked,
+          username: $('opc_user').value,
+          password: $('opc_pwd').value,
+          pollIntervalMs: Number($('opc_poll').value),
+        },
+      };
+      msg('保存中…');
+      try {
+        const r = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        msg('已保存 ✓ OPC UA: ' + (j.opcua.running ? '运行中' : '未运行') + (j.opcua.lastError ? ' (' + j.opcua.lastError + ')' : ''), '#22c55e');
+      } catch (e) { msg('保存失败: ' + e.message, '#ef4444'); }
+    }
+    $('addCh').onclick = () => $('channels').appendChild(chRow());
+    $('save').onclick = save;
+    $('reload').onclick = load;
+    load();
+  </script>
+</body>
+</html>

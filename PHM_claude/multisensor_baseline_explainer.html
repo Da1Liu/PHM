@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>多传感器健康基线 · 看得懂的讲解</title>
+<style>
+  :root{
+    --bg:#f6f8fc; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --line:#e5e9f2; --accent:#3b6ef5; --accent-soft:#eaf0ff;
+    --good:#10b981; --good-soft:#e7f8f1; --warn:#f59e0b; --warn-soft:#fef4e3;
+    --bad:#ef4444; --bad-soft:#fdecec; --teal:#0ea5a4;
+    --shadow:0 6px 24px rgba(31,41,55,.07);
+    --radius:16px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+    line-height:1.75; font-size:16px;
+  }
+  .wrap{max-width:980px; margin:0 auto; padding:0 22px}
+
+  /* top progress nav */
+  .topnav{position:sticky; top:0; z-index:50; background:rgba(246,248,252,.88);
+    backdrop-filter:blur(10px); border-bottom:1px solid var(--line)}
+  .topnav .wrap{display:flex; gap:6px; overflow-x:auto; padding:10px 22px; scrollbar-width:none}
+  .topnav .wrap::-webkit-scrollbar{display:none}
+  .topnav a{white-space:nowrap; font-size:13px; color:var(--muted); text-decoration:none;
+    padding:6px 12px; border-radius:999px; transition:.2s}
+  .topnav a:hover{background:var(--accent-soft); color:var(--accent)}
+  .topnav a.active{background:var(--accent); color:#fff}
+
+  /* hero */
+  .hero{padding:64px 0 44px; text-align:center}
+  .hero .kicker{display:inline-block; font-size:13px; letter-spacing:.08em; color:var(--accent);
+    background:var(--accent-soft); padding:5px 14px; border-radius:999px; margin-bottom:18px; font-weight:600}
+  .hero h1{font-size:40px; line-height:1.25; margin:0 0 16px; letter-spacing:-.01em}
+  .hero p.lead{font-size:18px; color:var(--muted); max-width:680px; margin:0 auto}
+  .hero .scrolltip{margin-top:30px; font-size:13px; color:var(--muted)}
+
+  section{padding:46px 0; border-top:1px solid var(--line)}
+  section h2{font-size:27px; margin:0 0 6px; letter-spacing:-.01em}
+  section .sub{color:var(--muted); margin:0 0 26px; font-size:15px}
+  .stepno{display:inline-flex; align-items:center; justify-content:center;
+    width:30px; height:30px; border-radius:9px; background:var(--accent); color:#fff;
+    font-size:15px; font-weight:700; margin-right:10px; vertical-align:2px}
+
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:22px 24px; box-shadow:var(--shadow); margin:16px 0}
+  .card h3{margin:0 0 8px; font-size:18px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+
+  .pill{display:inline-block; font-size:12px; padding:3px 10px; border-radius:999px; font-weight:600}
+  .pill.good{background:var(--good-soft); color:#0b7a5b}
+  .pill.warn{background:var(--warn-soft); color:#b3730a}
+  .pill.bad{background:var(--bad-soft); color:#c0322b}
+  .pill.info{background:var(--accent-soft); color:var(--accent)}
+
+  .analogy{background:linear-gradient(135deg,#fff,#f3f7ff); border-left:4px solid var(--accent)}
+  .analogy .tag{font-size:12px; font-weight:700; color:var(--accent); letter-spacing:.05em}
+
+  table{width:100%; border-collapse:collapse; font-size:14px; margin:8px 0}
+  th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line)}
+  th{color:var(--muted); font-weight:600; font-size:12.5px; letter-spacing:.03em}
+  td.num{font-variant-numeric:tabular-nums; text-align:right}
+  tr:last-child td{border-bottom:none}
+  .t-hi{background:var(--good-soft)}
+
+  /* bar viz */
+  .bars{margin:6px 0}
+  .barrow{display:flex; align-items:center; gap:10px; margin:7px 0}
+  .barrow .lab{width:160px; font-size:13px; color:var(--ink); flex:none}
+  .barrow .track{flex:1; background:#eef1f7; border-radius:8px; height:22px; position:relative; overflow:hidden}
+  .barrow .fill{height:100%; border-radius:8px; display:flex; align-items:center; justify-content:flex-end;
+    padding-right:8px; color:#fff; font-size:12px; font-weight:600; min-width:34px}
+  @media(max-width:720px){.barrow .lab{width:118px; font-size:12px}}
+
+  /* canvas demo */
+  .demo{display:grid; grid-template-columns:1fr 320px; gap:20px; align-items:center}
+  @media(max-width:760px){.demo{grid-template-columns:1fr}}
+  canvas{width:100%; max-width:420px; height:auto; background:#fbfcfe; border:1px solid var(--line); border-radius:12px}
+  .btnrow{display:flex; flex-wrap:wrap; gap:8px; margin:12px 0}
+  .btn{cursor:pointer; border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:8px 14px; border-radius:10px; font-size:13px; transition:.18s; font-weight:600}
+  .btn:hover{border-color:var(--accent); color:var(--accent)}
+  .btn.active{background:var(--accent); color:#fff; border-color:var(--accent)}
+  .legend{font-size:13px; color:var(--muted); margin-top:8px}
+  .dot{display:inline-block; width:10px; height:10px; border-radius:50%; vertical-align:1px; margin-right:5px}
+
+  .metric{border:1px solid var(--line); border-radius:12px; padding:16px; background:#fff}
+  .metric .name{font-weight:700; font-size:15px}
+  .metric .code{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px; color:var(--teal);
+    background:#f0fdfa; padding:2px 7px; border-radius:6px}
+  .metric .plain{color:var(--muted); font-size:14px; margin-top:6px}
+  .metric .want{margin-top:8px; font-size:13px}
+
+  .callout{border-radius:12px; padding:16px 18px; margin:14px 0; font-size:15px}
+  .callout.key{background:var(--accent-soft); border:1px solid #cfe0ff}
+  .callout.warnote{background:var(--warn-soft); border:1px solid #f6dca0}
+  .callout.win{background:var(--good-soft); border:1px solid #b9ecd6}
+  .callout b{font-weight:700}
+
+  .flow{display:flex; gap:10px; flex-wrap:wrap; margin:10px 0}
+  .flow .node{flex:1; min-width:150px; background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px}
+  .flow .node .n{font-size:12px; color:var(--accent); font-weight:700}
+  .flow .arrow{align-self:center; color:var(--muted); font-size:20px}
+
+  .verdict{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px}
+  @media(max-width:720px){.verdict{grid-template-columns:1fr}}
+  .vcard{border-radius:14px; padding:18px; border:1px solid var(--line)}
+  .vcard.s{background:var(--good-soft); border-color:#b9ecd6}
+  .vcard.w{background:var(--warn-soft); border-color:#f6dca0}
+  .vcard.f{background:var(--bad-soft); border-color:#f3b9b6}
+  .vcard h4{margin:0 0 8px; font-size:16px}
+  .vcard ul{margin:0; padding-left:18px; font-size:13.5px; color:#444}
+
+  code.inl{font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px;
+    background:#f1f3f9; padding:1px 6px; border-radius:5px; color:#374151}
+
+  footer{padding:40px 0 60px; color:var(--muted); font-size:13px; text-align:center}
+  .muted{color:var(--muted)}
+  .big{font-size:30px; font-weight:800; line-height:1}
+</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="wrap">
+    <a href="#s0" class="active">开场</a>
+    <a href="#s1">问题</a>
+    <a href="#s2">核心直觉</a>
+    <a href="#s3">用什么数据</a>
+    <a href="#s4">验证三步</a>
+    <a href="#s5">对照选手</a>
+    <a href="#s6">读懂指标</a>
+    <a href="#s7">实际结果</a>
+    <a href="#s8">诚实的边界</a>
+    <a href="#s9">最终结论</a>
+  </div>
+</nav>
+
+<header class="hero" id="s0">
+  <div class="wrap">
+    <span class="kicker">技术路线验证 · 通俗讲解版</span>
+    <h1>很多传感器一起，<br>能不能学会"机器健康长什么样"？</h1>
+    <p class="lead">这份文档在做一件事：验证"把振动、温度、电流、压力等多个传感器合起来，建立一个'健康状态'的统计模型，再用它发现异常"这条路到底走不走得通。下面把它从头讲清楚。</p>
+    <div class="scrolltip">↓ 往下滑，我们一步一步来</div>
+  </div>
+</header>
+
+<!-- 1 -->
+<section id="s1">
+  <div class="wrap">
+    <h2><span class="stepno">?</span>先搞清楚：到底要解决什么问题</h2>
+    <p class="sub">为什么不能"每个传感器单独设个报警线"就完事了。</p>
+
+    <div class="card analogy">
+      <div class="tag">打个比方 · 体检</div>
+      <p style="margin:8px 0 0">你去体检，<b>每一项指标</b>——血压、心率、血糖——都在正常范围内，单看没毛病。但医生可能仍然皱眉：因为你"血糖偏高 + 血压偏高 + 体重偏高"<b>同时出现</b>，这个<b>组合</b>本身就不正常，哪怕每一项都没越线。</p>
+      <p style="margin:10px 0 0">机器也一样。一台主轴：振动、温度、电流可能各自都在"正常区间"，但健康的机器里它们之间有固定的<b>配合关系</b>（转得快→电流大→温度升）。如果某天"电流没怎么变，温度却异常高"，说明这个<b>配合关系</b>坏了——这往往是故障的早期信号。</p>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>❌ 传统做法：单通道阈值</h3>
+        <p class="muted" style="margin:0">给每个传感器画一条红线，超了就报警。简单，但<b>只看每个变量自己</b>，完全看不见"变量之间关系变了"这种异常。早期、轻微的联合退化容易漏掉。</p>
+      </div>
+      <div class="card">
+        <h3>✅ 本文路线：联合健康基线</h3>
+        <p style="margin:0">把多个传感器拼成<b>一个向量</b>，学习健康时它们的<b>联合分布</b>（不仅每个变量的范围，还有变量之间的相关关系）。新数据离这个"健康形状"越远，越可疑。</p>
+      </div>
+    </div>
+
+    <div class="callout key">
+      一句话目标：<b>验证"多传感器 + 协方差矩阵"能不能学出一个稳定的'健康长什么样'，并且比单通道阈值更早、更准地发现异常。</b>
+    </div>
+  </div>
+</section>
+
+<!-- 2 -->
+<section id="s2">
+  <div class="wrap">
+    <h2><span class="stepno">①</span>核心直觉：什么是"协方差 / 马氏距离"</h2>
+    <p class="sub">这是整条路线的灵魂。用一张图你就懂了——别怕公式。</p>
+
+    <p>想象只有 <b>两个</b>传感器：横轴 = 振动，纵轴 = 温度。把健康时收集到的很多个样本点画出来，它们不会乱成一团，而是形成一个<b>有方向的"云"</b>（因为振动大时温度往往也高，二者相关）。</p>
+
+    <div class="card">
+      <div class="demo">
+        <div>
+          <canvas id="cv" width="420" height="360"></canvas>
+        </div>
+        <div>
+          <div class="btnrow">
+            <button class="btn active" data-mode="healthy">只看健康数据</button>
+            <button class="btn" data-mode="amp">幅值异常</button>
+            <button class="btn" data-mode="rel">关系异常 ⭐</button>
+          </div>
+          <p class="legend">
+            <span class="dot" style="background:#9bb4ef"></span>健康样本（蓝色云）<br>
+            <span class="dot" style="background:#10b981"></span>椭圆 = 健康的"形状"范围<br>
+            <span class="dot" style="background:#ef4444"></span>被检测的可疑点
+          </p>
+          <p class="legend" id="explain" style="color:var(--ink)">
+            蓝色点形成一个<b>斜着的椭圆</b>：这就是健康状态的"形状"。绿色椭圆是它的边界。
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <h3>"马氏距离" 在量什么</h3>
+        <p style="margin:0" class="muted">普通距离是"离中心几厘米"。<b>马氏距离</b>是"<b>顺着这朵云的形状</b>，离中心几个标准差"。同样的直线距离，<b>顺着椭圆长轴</b>方向算很近，<b>横穿短轴</b>方向算很远。它自动考虑了"哪些方向本来就该一起变"。</p>
+        <p class="muted" style="margin:8px 0 0">公式 <code class="inl">D² = (x−μ)ᵀ Σ⁻¹ (x−μ)</code> 里那个 <code class="inl">Σ</code>（协方差矩阵）就是"云的形状"，<code class="inl">μ</code> 是云的中心。</p>
+      </div>
+      <div class="card">
+        <h3>关系异常 = 这条路线的杀手锏 ⭐</h3>
+        <p style="margin:0">点击上面的 <b>"关系异常"</b> 按钮：那个红点的振动、温度<b>各自都落在正常范围里</b>（投影到横轴、纵轴都不超线），<b>但它落在椭圆外面</b>——因为它违反了"振动高温度也该高"的配合关系。</p>
+        <p style="margin:8px 0 0"><b>单通道阈值看不见它，协方差能看见。</b>这正是体检比喻里"每项都正常但组合异常"的情况。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="s3">
+  <div class="wrap">
+    <h2><span class="stepno">②</span>用什么数据来验证</h2>
+    <p class="sub">没有现成的主轴数据，先借一套公开的"液压系统"数据来证明这条数学路线成立。</p>
+
+    <div class="card">
+      <h3>UCI 液压系统状态监测数据集</h3>
+      <p>一台液压试验台，反复跑标准的 60 秒循环。每个循环里有一大堆传感器同时记录：</p>
+      <table>
+        <tr><th>传感器</th><th>测什么</th><th>对应主轴里的角色</th></tr>
+        <tr><td>PS1–PS6</td><td>压力</td><td>系统负载 / 执行状态</td></tr>
+        <tr><td>FS1–FS2</td><td>流量</td><td>效率 / 泄漏</td></tr>
+        <tr><td>TS1–TS4</td><td>温度</td><td>热状态 / 油温</td></tr>
+        <tr><td>VS1</td><td>振动</td><td>机械动态状态</td></tr>
+        <tr><td>EPS1</td><td>电机功率</td><td>电流 / 负载</td></tr>
+      </table>
+      <p class="muted" style="margin-top:10px">数据里标注了部件的健康等级。这里选了一个干净的子任务：<b>泵泄漏</b>，等级 0=正常、1=轻微、2=严重。我们用"正常"样本学健康基线，再看模型能不能认出"泄漏"样本。</p>
+    </div>
+
+    <div class="callout warnote">
+      ⚠️ <b>它不是主轴，也不假装是。</b> 这一步验证的是<b>数学和工程路线</b>（多传感器协方差能不能用），不是验证真实主轴的物理。路线通了，再迁移到主轴/进给/液压真机。
+    </div>
+
+    <div class="card">
+      <h3>实际用的样本量</h3>
+      <p class="muted" style="margin:0 0 6px">固定 <code class="inl">冷却器=100</code> 且 <code class="inl">稳态=0</code> 的子集里：</p>
+      <div class="flow">
+        <div class="node"><div class="n">健康 (泵=0)</div><div class="big">169</div><div class="muted" style="font-size:13px">学习健康基线</div></div>
+        <div class="node"><div class="n">轻微泄漏 (泵=1)</div><div class="big">160</div><div class="muted" style="font-size:13px">待检测</div></div>
+        <div class="node"><div class="n">严重泄漏 (泵=2)</div><div class="big">160</div><div class="muted" style="font-size:13px">待检测</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="s4">
+  <div class="wrap">
+    <h2><span class="stepno">③</span>验证分三步走（文档里的"停点"）</h2>
+    <p class="sub">整个验证不是一锤子，而是层层加码，每步都设了一个"该不该继续"的检查点。</p>
+
+    <div class="flow" style="margin-bottom:18px">
+      <div class="node"><div class="n">停点 1 · 自检</div><b>关系真的存在吗？</b><p class="muted" style="font-size:13px;margin:6px 0 0">提取特征，看传感器之间到底有没有相关性，矩阵会不会"病态"。</p></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="n">停点 2 · 对照</div><b>协方差比单通道强吗？</b><p class="muted" style="font-size:13px;margin:6px 0 0">真实泄漏故障上，7 个模型 PK。</p></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="n">停点 3 · 关系异常</div><b>能抓住"关系坏了"吗？</b><p class="muted" style="font-size:13px;margin:6px 0 0">人造"边际正常但配合乱掉"的样本，看谁抓得住。</p></div>
+    </div>
+
+    <div class="card">
+      <h3>停点 1 发现了什么</h3>
+      <table>
+        <tr><th>指标</th><th>值</th><th>大白话</th></tr>
+        <tr><td>跨传感器平均相关强度</td><td class="num">0.331</td><td>明显不为零 → 传感器之间<b>确实有配合关系</b> ✅</td></tr>
+        <tr><td>最强一对相关</td><td class="num">0.996</td><td>有两个传感器几乎是"复制粘贴"，信息高度重叠</td></tr>
+        <tr><td>协方差矩阵最大特征值</td><td class="num">5.96</td><td>某个方向上数据变化幅度很大</td></tr>
+        <tr><td>协方差矩阵最小特征值</td><td class="num">0.000000053</td><td>另一个方向几乎不变（因为有高度相关的传感器对）</td></tr>
+        <tr><td>条件数 = 最大/最小</td><td class="num">1.12 亿</td><td>矩阵<b>严重病态</b>，直接求逆时微小误差会被放大上亿倍 ⚠️</td></tr>
+      </table>
+      <div class="callout warnote" style="margin-top:12px">
+        <b>为什么 1.12 亿是个大问题？</b><br>
+        求逆时需要用"最小特征值的倒数"，0.000000053 的倒数是 1880 万。任何测量噪声、浮点误差都会被疯狂放大。一般条件数 &gt; 100 万就很危险，1 亿量级意味着<b>裸矩阵求逆的结果基本不可信</b>。这就是为什么必须用正则化（加稳定剂）或 PCA（丢掉病态方向）。
+      </div>
+      <p class="muted" style="margin-top:10px">结论：关系存在（好消息），但 14 维裸协方差矩阵太病态，<b>工程上不能直接用，要靠"正则化"或"PCA 降维"来稳住</b>。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section id="s5">
+  <div class="wrap">
+    <h2><span class="stepno">④</span>参赛的 7 个"选手"（对照模型 M0–M6）</h2>
+    <p class="sub">为了证明"完整协方差有用"，必须和一堆更简单/更朴素的方法比。把它们想成赛跑选手。</p>
+
+    <div class="grid2">
+      <div class="card"><h3>M0 · 单变量阈值 <span class="pill bad">最朴素</span></h3><p class="muted" style="margin:0">每个传感器各看各的，取最离谱的那个当分数。代表传统单通道报警。</p></div>
+      <div class="card"><h3>M1 · 对角协方差 <span class="pill warn">半成品</span></h3><p class="muted" style="margin:0">考虑了每个变量的"胖瘦"，但<b>假装变量之间没关系</b>。相当于"各算各的再加起来"。</p></div>
+      <div class="card"><h3>M2 · 完整协方差 <span class="pill info">主角</span></h3><p class="muted" style="margin:0">用上全部变量之间的关系。理论上最强，但前面说了，它的矩阵<b>太病态</b>，工程上有风险。</p></div>
+      <div class="card"><h3>M3 · 正则化协方差 <span class="pill good">工程候选</span></h3><p class="muted" style="margin:0">给病态矩阵"加点稳定剂"，既用上关系又不容易翻车。是更现实的版本。</p></div>
+      <div class="card"><h3>M4 · PCA + T²</h3><p class="muted" style="margin:0">先<b>降维</b>，抓住几个最主要的"共同变化模式"，再在这个低维空间里量距离。</p></div>
+      <div class="card"><h3>M5 · PCA + T² + SPE <span class="pill good">推荐</span></h3><p class="muted" style="margin:0">在 M4 基础上再加一个 <b>SPE（残差）</b>：专门盯"偏离主模式的部分"。一会儿你会看到，<b>SPE 才是真正的主力</b>。</p></div>
+      <div class="card"><h3>M6 · 打乱相关性（陷阱对照）</h3><p class="muted" style="margin:0">故意把训练数据每列<b>独立洗牌</b>，破坏真实关系再建协方差。如果它也很强，说明前面的强是<b>碰运气</b>而非真关系。这是个"照妖镜"。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section id="s6">
+  <div class="wrap">
+    <h2><span class="stepno">⑤</span>怎么读这些数字（指标词典）</h2>
+    <p class="sub">结果表里会反复出现这几个词，先把它们翻译成人话。</p>
+
+    <div class="grid2">
+      <div class="metric">
+        <div class="name">AUC <span class="code">0 ~ 1</span></div>
+        <div class="plain">把健康和故障样本分开的能力。随便瞎猜=0.5，完美区分=1.0。</div>
+        <div class="want"><span class="pill good">越接近 1 越好</span></div>
+      </div>
+      <div class="metric">
+        <div class="name">Spearman <span class="code">−1 ~ 1</span></div>
+        <div class="plain">异常分数是否随"泄漏越严重"而<b>单调升高</b>。越高说明越能反映严重程度，不只是有无。</div>
+        <div class="want"><span class="pill good">正且越高越好</span></div>
+      </div>
+      <div class="metric">
+        <div class="name">FAR（误报率）<span class="code">%</span></div>
+        <div class="plain">健康样本里被错误报警的比例。报警别太爱"狼来了"。</div>
+        <div class="want"><span class="pill warn">越低越好（但见"诚实的边界"）</span></div>
+      </div>
+      <div class="metric">
+        <div class="name">条件数 <span class="code">condition number</span></div>
+        <div class="plain">矩阵"病态"程度。太大 → 求逆不稳，结果像在悬崖边走。</div>
+        <div class="want"><span class="pill warn">越小越稳</span></div>
+      </div>
+      <div class="metric">
+        <div class="name">offdiag 相关强度</div>
+        <div class="plain">传感器之间平均有多相关。接近 0 = 各管各的，协方差没用武之地。</div>
+        <div class="want"><span class="pill good">明显非零才有意义</span></div>
+      </div>
+      <div class="metric">
+        <div class="name">T² vs SPE</div>
+        <div class="plain"><b>T²</b>：在"主要模式"内部的异常。<b>SPE</b>：偏离主要模式的"残差"异常。两者互补。</div>
+        <div class="want"><span class="pill info">关系异常常靠 SPE 抓住</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section id="s7">
+  <div class="wrap">
+    <h2><span class="stepno">⑥</span>实际结果：三步分别看到了什么</h2>
+    <p class="sub">这里是验证的核心证据。我们一组一组看。</p>
+
+    <div class="card">
+      <h3>结果 A · 真实泄漏太"简单"了</h3>
+      <p>用上全部 14 个特征时，所有模型 <b>AUC 都 = 1.000</b>，全部满分。</p>
+      <div class="callout warnote" style="margin:10px 0 0">
+        满分听起来很棒，<b>但其实是个问题</b>：因为有几个单变量（如流量、流量压力比）本身就极其好分，<b>用不用协方差都一样满分</b>，根本比不出高下。所以下一步要<b>故意把这些"作弊特征"删掉</b>，逼出真本事。
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>结果 B · 删掉"作弊特征"后 —— 这才是关键证据 ⭐</h3>
+      <p class="muted">把单变量就极易区分的强特征剔除，剩下 10 个"弱"特征。再看谁还行：</p>
+      <div class="bars" id="barsB"></div>
+      <div class="callout win" style="margin-top:14px">
+        ✅ 删掉强特征后，<b>协方差类（正则化 0.98）和 PCA+SPE（满分）依旧明显甩开</b>对角协方差（0.75）、单变量（0.68）和"打乱对照"（0.71）。这说明<b>收益来自传感器之间真实的关系</b>，不是碰运气。这是支撑整条路线的<b>最硬的证据</b>。
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>结果 C · 关系异常测试 —— 杀手锏场景</h3>
+
+      <div class="callout key" style="margin-bottom:16px">
+        <b>什么叫"人造样本"？</b><br>
+        假设健康校准集有 68 条样本，每条是 10 维向量（10 个传感器）。代码做了这个操作（以"全特征打乱"为例）：<br><br>
+        <code class="inl" style="display:block;margin:6px 0">for 每个传感器列: 把这一列的 68 个值<b>独立洗牌</b></code>
+        <br>
+        结果：生成 68 条"伪异常"样本，<b>每个传感器的数值仍然从健康样本里抽</b>（所以单看任何一个传感器，数值都在正常范围），<b>但传感器之间的配对关系被打乱了</b>。<br><br>
+        举例：原本样本 1 是 <code class="inl">[ps1=150, eps1=2400, ts2=40]</code>，样本 2 是 <code class="inl">[ps1=151, eps1=2410, ts2=41]</code>。打乱后可能变成伪异常样本 <code class="inl">[ps1=样本23的, eps1=样本7的, ts2=样本55的]</code>——每个值都健康，但"ps1 高时 eps1 也高"的配合关系被破坏了。
+      </div>
+
+      <div class="callout key">
+        <b>AUC 怎么算的？有什么价值？</b><br>
+        把 68 条真健康样本（标签=0）和 68 条伪异常样本（标签=1）混在一起，让模型打分，算 AUC。<b>AUC 量的是：模型能否区分"真健康"和"关系被打乱的伪异常"。</b><br><br>
+        <b>价值：</b>验证模型是否<b>具备捕捉"关系异常"的能力</b>。真实的泵泄漏会同时改变流量、压力、功率的绝对值，所以单变量也能抓（太简单）。但有些早期故障可能是"摩擦增加一点点、热膨胀增加一点点、振动频率偏移一点点"，<b>每项都没越线但组合不对</b>——这个测试就是在模拟这种场景，看模型有没有这个能力。
+      </div>
+
+      <p class="muted" style="margin-top:16px">下面是不同打乱方式下的 AUC：</p>
+      <table>
+        <tr><th>打乱方式</th><th>单变量</th><th>对角协方差</th><th>完整/正则协方差</th><th>PCA+T²+SPE</th></tr>
+        <tr><td>全特征打乱</td><td class="num">0.56</td><td class="num">0.48</td><td class="num t-hi">0.87–0.89</td><td class="num t-hi">0.89</td></tr>
+        <tr><td>温度对打乱</td><td class="num">0.56</td><td class="num">0.47</td><td class="num t-hi">0.84–0.85</td><td class="num t-hi">0.87</td></tr>
+        <tr><td>压力对打乱</td><td class="num">0.53</td><td class="num">0.51</td><td class="num t-hi">0.68–0.73</td><td class="num t-hi">0.79</td></tr>
+        <tr><td>传感器块打乱</td><td class="num">0.53</td><td class="num">0.50</td><td class="num">0.58–0.59</td><td class="num t-hi">0.74</td></tr>
+        <tr><td>仅功率打乱</td><td class="num">0.51</td><td class="num">0.51</td><td class="num">0.51–0.52</td><td class="num">0.53</td></tr>
+      </table>
+
+      <div class="callout warnote" style="margin-top:12px">
+        <b>为什么单变量/对角协方差 AUC≈0.5（瞎猜）？</b><br>
+        这不是因为它们能力差，而是<b>数学设计上注定的</b>：它们只看每个传感器自己的数值。而伪异常样本的每个传感器数值都是从健康样本里拿的，<b>在它们眼里和真健康样本完全一样</b>。所以 AUC≈0.5 是必然。<br><br>
+        协方差和 PCA+SPE 能抓住，说明它们<b>真的学到了"ps1 高时 eps1 也该高"这种关系</b>，打乱后能识破。
+      </div>
+
+      <p class="muted" style="margin-top:10px"><b>最后一行"仅功率打乱"为什么大家都抓不住？</b> 说明在这个数据里，功率(EPS1)与其它传感器之间的<b>线性协方差耦合相对独立或较弱</b>，打乱它不会显著违反模型学到的健康结构。类比：乐队里打乱三角铁演奏者的时机，基本听不出——不是他/她贡献大，而是和其它乐器的协同关系弱。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section id="s8">
+  <div class="wrap">
+    <h2><span class="stepno">⚑</span>诚实的边界：哪些结论要打折扣</h2>
+    <p class="sub">一个负责任的验证，必须说清自己<b>没</b>证明什么。这几点很重要，门外汉尤其要知道，免得被"满分""完胜"误导。</p>
+
+    <div class="callout warnote">
+      <b>1. "误报率 1.47%" 是个数学巧合，不能当真。</b><br>
+      代码里用同一批健康数据<b>既定阈值又算误报</b>——取"99 分位"当线，那必然只有约 1% 的点超线。68 个点里超 1 个 = 1.47%。<b>所有模型都恰好是这个数</b>，因为它跟模型好坏无关，是被算法定义"逼出来"的。真要评估误报，需要一批<b>没参与定阈值的独立健康数据</b>。
+    </div>
+
+    <div class="callout warnote">
+      <b>2. 关系异常测试"完胜"，有一半是设计决定的。</b><br>
+      那个测试只打乱关系、不改每个变量自己的数值。而单变量/对角模型<b>本来就只看每个变量自己</b>——它们<b>在数学上注定</b>看不见这种异常，AUC≈0.5 是必然，不是"实测发现"。<br><br>
+      所以它证明的是"协方差<b>有能力</b>抓关系异常"（必要条件），<b>不等于</b>"真实主轴故障一定是这种'边际正常只是关系乱'的形态"。真实故障往往会<b>同时改变幅值和关系</b>，那时候单变量阈值也能抓到一部分。<br><br>
+      <b>它的价值在于：</b>如果真机上确实出现"每项都在正常范围但组合不对"的早期退化，这个测试证明协方差/PCA 具备识别能力，而单通道不具备。至于真实故障有没有这个特征，<b>需要在真机数据上验证</b>。
+    </div>
+
+    <div class="callout warnote">
+      <b>3. 立功的其实是 SPE（残差），不是 T²（主成分）。</b><br>
+      删掉强特征后，只用 T² 的 M4 只有 0.64，加上 SPE 的 M5 直接 1.0。也就是说，<b>真正抓住异常的是"偏离主模式的残差"部分</b>，而不是"主要共变结构"本身。所以工程落地时 <b>SPE 这一项不能省</b>，光靠 PCA 主成分是不够的。
+    </div>
+
+    <div class="callout key">
+      <b>这些不是要否定路线</b>，而是把它的"证明力"摆正：<br>
+      → 路线<b>可行</b>这一条，靠的是 <b>结果 B</b>（删掉作弊特征后协方差仍胜出，且是合法的样本外检验）。<br>
+      → 误报率、关系异常的"现实意义"，需要<b>真机数据 + 独立测试集</b>才能进一步坐实。
+    </div>
+  </div>
+</section>
+
+<!-- 9 -->
+<section id="s9">
+  <div class="wrap">
+    <h2><span class="stepno">✓</span>最终结论：这条路到底成不成立</h2>
+    <p class="sub">文档给了三档判定。结合证据，目前落在"成立，但要用对版本"。</p>
+
+    <div class="verdict">
+      <div class="vcard s">
+        <h4>✅ 强通过</h4>
+        <ul>
+          <li>有明确跨传感器关系</li>
+          <li>正则化/PCA 优于对角</li>
+          <li>误报率 &lt; 5%</li>
+          <li>分数随严重度升高</li>
+          <li>关系异常上完胜</li>
+        </ul>
+      </div>
+      <div class="vcard w">
+        <h4>⭐ 实际落点：弱通过</h4>
+        <ul>
+          <li>真实故障上各法接近</li>
+          <li>但删强特征后协方差明显更优</li>
+          <li>协方差需正则化/PCA 才稳</li>
+          <li><b>结论：路线可行，工程上用<u>正则化协方差</u>或<u>PCA+T²+SPE</u></b></li>
+        </ul>
+      </div>
+      <div class="vcard f">
+        <h4>✗ 不通过</h4>
+        <ul>
+          <li>关系很弱</li>
+          <li>协方差/PCA 都不比对角强</li>
+          <li>关系异常也没优势</li>
+          <li>→ 需换数据集</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <h3>给工程落地的优先级</h3>
+      <div class="flow">
+        <div class="node"><div class="n">第一优先</div><b>PCA + T² + SPE</b><p class="muted" style="font-size:13px;margin:6px 0 0">最稳，SPE 不能省</p></div>
+        <div class="node"><div class="n">第二优先</div><b>正则化协方差</b><p class="muted" style="font-size:13px;margin:6px 0 0">简单可解释</p></div>
+        <div class="node"><div class="n">不推荐</div><b>裸完整协方差</b><p class="muted" style="font-size:13px;margin:6px 0 0">矩阵太病态</p></div>
+        <div class="node"><div class="n">不够用</div><b>单变量 / 对角</b><p class="muted" style="font-size:13px;margin:6px 0 0">抓不住关系异常</p></div>
+      </div>
+    </div>
+
+    <div class="callout key" style="margin-top:16px">
+      <b>一句话收尾：</b> "多个传感器一起学健康基线、用协方差发现异常"这条路<b>走得通</b>——前提是别用最朴素的裸矩阵，而要用正则化或 PCA+残差的稳健版本；而且它最大的价值（抓"关系异常"）还需要在真实机床数据上进一步验证。
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    初版讲解 · 基于 <code class="inl">multisensor_covariance_baseline_validation_plan.md</code> 与 step7/8/9 实测输出<br>
+    数据可视化中的数值取自 outputs/ 下的真实 CSV。后续可继续打磨。
+  </div>
+</footer>
+
+<script>
+/* ---------- scroll spy ---------- */
+const links=[...document.querySelectorAll('.topnav a')];
+const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+const spy=()=>{
+  const y=window.scrollY+120; let idx=0;
+  secs.forEach((s,i)=>{ if(s && s.offsetTop<=y) idx=i; });
+  links.forEach((a,i)=>a.classList.toggle('active',i===idx));
+};
+window.addEventListener('scroll',spy); spy();
+
+/* ---------- bar chart for result B ---------- */
+const dataB=[
+  {n:'PCA + T² + SPE (M5)', v:1.000, c:'#10b981'},
+  {n:'正则化协方差 λ=0.01 (M3)', v:0.984, c:'#10b981'},
+  {n:'正则化协方差 λ=0.05 (M3)', v:0.983, c:'#34c08a'},
+  {n:'完整协方差 (M2)', v:0.978, c:'#3b6ef5'},
+  {n:'对角协方差 (M1)', v:0.747, c:'#f59e0b'},
+  {n:'打乱对照 (M6)', v:0.708, c:'#9aa3b2'},
+  {n:'单变量阈值 (M0)', v:0.681, c:'#ef4444'},
+];
+const wrapB=document.getElementById('barsB');
+dataB.forEach(d=>{
+  const row=document.createElement('div'); row.className='barrow';
+  row.innerHTML=`<div class="lab">${d.n}</div>
+    <div class="track"><div class="fill" style="width:${d.v*100}%;background:${d.c}">${d.v.toFixed(3)}</div></div>`;
+  wrapB.appendChild(row);
+});
+
+/* ---------- canvas covariance demo ---------- */
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=cv.width, H=cv.height, pad=40;
+// deterministic healthy correlated cloud
+function gauss(){let u=0,v=0;while(u===0)u=Math.random();while(v===0)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);}
+let seed=42; Math.seedrandom; // noop
+const pts=[];
+for(let i=0;i<140;i++){
+  const a=gauss(); const b=gauss()*0.45;
+  // rotate ~35deg to create correlation
+  const ang=Math.PI*0.20;
+  const x=a*Math.cos(ang)-b*Math.sin(ang);
+  const y=a*Math.sin(ang)+b*Math.cos(ang);
+  pts.push({x,y});
+}
+const cx=0,cy=0;
+function toPx(x,y){
+  return [W/2 + x* (W/2-pad)/3.2, H/2 - y*(H/2-pad)/3.2];
+}
+function drawAxes(){
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle='#e5e9f2'; ctx.lineWidth=1;
+  // grid
+  for(let g=-3;g<=3;g++){
+    let [px]=toPx(g,0); ctx.beginPath();ctx.moveTo(px,pad);ctx.lineTo(px,H-pad);ctx.stroke();
+    let [,py]=toPx(0,g); ctx.beginPath();ctx.moveTo(pad,py);ctx.lineTo(W-pad,py);ctx.stroke();
+  }
+  ctx.fillStyle='#6b7280'; ctx.font='12px sans-serif';
+  ctx.fillText('振动 →', W-70, H-pad+22);
+  ctx.save();ctx.translate(pad-26,70);ctx.rotate(-Math.PI/2);ctx.fillText('温度 →',0,0);ctx.restore();
+}
+function drawEllipse(){
+  // covariance ellipse along the cloud orientation
+  ctx.save();
+  const [ex,ey]=toPx(0,0);
+  ctx.translate(ex,ey);
+  ctx.rotate(-Math.PI*0.20);
+  ctx.strokeStyle='#10b981'; ctx.lineWidth=2; ctx.setLineDash([6,5]);
+  const rx=(W/2-pad)/3.2*2.4, ry=(H/2-pad)/3.2*2.4*0.45;
+  ctx.beginPath(); ctx.ellipse(0,0,rx,ry,0,0,2*Math.PI); ctx.stroke();
+  ctx.restore(); ctx.setLineDash([]);
+}
+function drawPoints(){
+  pts.forEach(p=>{
+    const [px,py]=toPx(p.x,p.y);
+    ctx.fillStyle='rgba(155,180,239,.75)';
+    ctx.beginPath();ctx.arc(px,py,3.4,0,2*Math.PI);ctx.fill();
+  });
+}
+function drawTest(mode){
+  let tx,ty,label;
+  if(mode==='amp'){ tx=2.4; ty=2.0; }        // far out, both high
+  else if(mode==='rel'){ tx=1.7; ty=-1.4; }   // within each axis range but off-diagonal
+  else return;
+  const [px,py]=toPx(tx,ty);
+  // projection guides
+  ctx.strokeStyle='rgba(239,68,68,.4)'; ctx.setLineDash([4,4]); ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(px,H-pad);ctx.lineTo(px,py);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(pad,py);ctx.lineTo(px,py);ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle='#ef4444';
+  ctx.beginPath();ctx.arc(px,py,6,0,2*Math.PI);ctx.fill();
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+}
+function render(mode){
+  drawAxes(); drawEllipse(); drawPoints(); drawTest(mode);
+}
+render('healthy');
+
+const explain=document.getElementById('explain');
+const texts={
+  healthy:'蓝色点形成一个<b>斜着的椭圆</b>：这就是健康状态的"形状"。绿色椭圆是它的边界。',
+  amp:'<b>幅值异常：</b>红点振动和温度<b>都明显偏高</b>，远远冲出椭圆。这种连单通道阈值也能抓到。',
+  rel:'<b>关系异常 ⭐：</b>看虚线——红点的振动、温度<b>各自都在正常范围内</b>（投影没超出蓝云的横纵跨度），<b>但它落在椭圆外</b>，因为违反了"振动高温度也高"的配合。<b>这种只有协方差能抓到，单通道完全看不见。</b>'
+};
+document.querySelectorAll('.btn[data-mode]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.btn[data-mode]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    const m=b.dataset.mode; render(m); explain.innerHTML=texts[m];
+  });
+});
+</script>
+</body>
+</html>

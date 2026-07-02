@@ -1,0 +1,13 @@
+server:
+  port: 19001
+mqtt:
+  url: tcp://127.0.0.1:1883
+  #url: tcp://27.17.57.163:1883
+  user:
+  password:
+sample:
+  cache:
+    max: 100
+    timeout: 10000
+  client:
+    timeout: 600000

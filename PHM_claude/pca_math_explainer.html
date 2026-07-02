@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCA + T² + SPE · 从零开始的数学原理</title>
+<style>
+:root{
+  --bg:#f8fafc; --card:#fff; --ink:#1e293b; --muted:#64748b;
+  --line:#e2e8f0; --accent:#3b82f6; --accent-soft:#dbeafe;
+  --good:#10b981; --warn:#f59e0b; --bad:#ef4444;
+  --shadow:0 4px 16px rgba(0,0,0,.08); --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
+  background:var(--bg);color:var(--ink);line-height:1.7;font-size:16px}
+.wrap{max-width:920px;margin:0 auto;padding:0 20px}
+
+.hero{padding:60px 0 40px;text-align:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
+.hero h1{font-size:38px;margin:0 0 12px;letter-spacing:-.02em}
+.hero p{font-size:17px;opacity:.95;max-width:680px;margin:0 auto}
+
+.nav{position:sticky;top:0;z-index:50;background:rgba(248,250,252,.95);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);padding:10px 0}
+.nav .wrap{display:flex;gap:6px;overflow-x:auto}
+.nav a{white-space:nowrap;font-size:13px;color:var(--muted);text-decoration:none;
+  padding:6px 12px;border-radius:20px;transition:.2s}
+.nav a:hover{background:var(--accent-soft);color:var(--accent)}
+.nav a.active{background:var(--accent);color:#fff}
+
+section{padding:50px 0;border-top:1px solid var(--line)}
+section h2{font-size:28px;margin:0 0 8px;display:flex;align-items:center;gap:12px}
+.num{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;
+  border-radius:10px;background:var(--accent);color:#fff;font-size:18px;font-weight:700;flex:none}
+section .sub{color:var(--muted);margin:0 0 24px;font-size:15px}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:24px;box-shadow:var(--shadow);margin:16px 0}
+.card h3{font-size:20px;margin:0 0 10px}
+.card p{margin:10px 0}
+
+.demo{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:center;margin:20px 0}
+@media(max-width:720px){.demo{grid-template-columns:1fr}}
+canvas{width:100%;max-width:100%;border:1px solid var(--line);border-radius:12px;background:#fefefe}
+
+.eq{font-family:Georgia,serif;font-size:19px;background:#f8faff;border-left:4px solid var(--accent);
+  padding:14px 18px;margin:16px 0;border-radius:8px;overflow-x:auto}
+.eq i{font-style:italic}
+
+.callout{border-radius:10px;padding:16px;margin:16px 0;border:1px solid}
+.callout.key{background:#f0f9ff;border-color:#bae6fd;color:#0c4a6e}
+.callout.note{background:#fefce8;border-color:#fde047;color:#713f12}
+
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+@media(max-width:720px){.grid2{grid-template-columns:1fr}}
+
+.step{background:linear-gradient(135deg,#fff,#f0f9ff);border:1px solid #bae6fd;
+  border-radius:12px;padding:18px;margin:10px 0}
+.step .t{font-weight:700;color:var(--accent);margin-bottom:8px}
+
+code{font-family:ui-monospace,monospace;font-size:14px;background:#f1f5f9;
+  padding:2px 6px;border-radius:4px;color:#475569}
+
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.btn{cursor:pointer;border:1px solid var(--line);background:#fff;padding:8px 14px;
+  border-radius:8px;font-size:13px;font-weight:600;transition:.18s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+table{width:100%;border-collapse:collapse;font-size:14px;margin:12px 0}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:13px}
+td.c{text-align:center}
+
+footer{padding:40px 0;text-align:center;color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>PCA + T² + SPE 数学原理</h1>
+    <p>从"什么是方差"开始，一步步搞懂为什么这套数学能判断机器健康。<br>0 基础也能看懂，配大量可视化。</p>
+  </div>
+</header>
+
+<nav class="nav">
+  <div class="wrap">
+    <a href="#s0" class="active">开场</a>
+    <a href="#s1">方差</a>
+    <a href="#s2">协方差</a>
+    <a href="#s3">特征值</a>
+    <a href="#s4">PCA降维</a>
+    <a href="#s5">T²统计量</a>
+    <a href="#s6">SPE残差</a>
+    <a href="#s7">完整流程</a>
+  </div>
+</nav>
+
+<section id="s0">
+  <div class="wrap">
+    <h2><span class="num">?</span>为什么需要这套数学</h2>
+    <p class="sub">从一个实际问题出发，看看单纯的"超限报警"为什么不够用。</p>
+
+    <div class="card">
+      <h3>问题场景：主轴健康监测</h3>
+      <p>主轴上装了 10 个传感器：振动 X/Y、温度前/后、电流、转速、位移……每秒产生 10 个数值。</p>
+      <p><strong>传统做法：</strong>给每个传感器画一条红线，超了就报警。</p>
+      <p><strong>问题：</strong></p>
+      <ul style="margin:10px 0 0 20px;line-height:1.9">
+        <li>10 个传感器 = 10 条独立红线 → 阈值难调，误报满天飞</li>
+        <li>早期故障时，<strong>每个传感器都没越线</strong>，但"振动略高 + 温度略高 + 电流略高"的<strong>组合</strong>已经不正常</li>
+        <li>无法利用"健康时振动和温度本来就一起变"的<strong>关系</strong></li>
+      </ul>
+    </div>
+
+    <div class="callout key">
+      <strong>PCA + T² + SPE 要解决的核心问题：</strong><br>
+      把 10 维传感器数据"压缩"成几个主要的"健康模式"，再看新数据是否偏离这些模式。<br>
+      <strong>结果：</strong>一个综合健康分数，而不是 10 个独立阈值。
+    </div>
+  </div>
+</section>
+
+<section id="s1">
+  <div class="wrap">
+    <h2><span class="num">1</span>第一步：理解"方差"</h2>
+    <p class="sub">方差量的是"数据有多散"。这是一切的起点。</p>
+
+    <div class="demo">
+      <div>
+        <canvas id="cv1" width="400" height="300"></canvas>
+      </div>
+      <div>
+        <h3>直觉：数据离平均值有多远</h3>
+        <p>左图中蓝点是某个传感器（比如振动）的 20 次测量。红色横线是<strong>平均值</strong>。</p>
+        <p><strong>方差</strong>就是："每个点到平均值的距离"的平方，再求平均。</p>
+        <div class="btnrow">
+          <button class="btn active" data-var="low">低方差（稳定）</button>
+          <button class="btn" data-var="high">高方差（波动大）</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>公式（别怕，很简单）</h3>
+      <div class="eq">
+        方差 = [(第1个数 − 平均)² + (第2个数 − 平均)² + … + (第n个数 − 平均)²] / n
+      </div>
+      <p>用数学符号写：</p>
+      <div class="eq">
+        σ² = Σ (x<sub>i</sub> − μ)² / n
+      </div>
+      <p style="margin-top:10px"><code>σ²</code> 读作"西格玛平方"，就是方差的符号。<code>μ</code>（mu）是平均值。</p>
+    </div>
+
+    <div class="grid2">
+      <div class="step">
+        <div class="t">为什么要平方？</div>
+        不平方的话，正负距离会抵消（+3 和 -3 加起来等于 0）。平方后全变成正数。
+      </div>
+      <div class="step">
+        <div class="t">健康监测里的意义</div>
+        方差小 → 传感器读数稳定；方差突然变大 → 可能出问题了（比如振动变得忽高忽低）。
+      </div>
+    </div>
+
+    <div class="callout note">
+      <strong>记住这个直觉：</strong>方差 = "数据围着平均值跳舞的半径"。方差越大，舞步越疯狂。
+    </div>
+  </div>
+</section>
+
+<section id="s2">
+  <div class="wrap">
+    <h2><span class="num">2</span>第二步：理解"协方差"</h2>
+    <p class="sub">协方差量的是"两个变量是否一起变"。这是捕捉传感器之间关系的关键。</p>
+
+    <div class="demo">
+      <div>
+        <canvas id="cv2" width="400" height="360"></canvas>
+      </div>
+      <div>
+        <h3>直觉：A 高时 B 也高吗？</h3>
+        <p>左图：横轴 = 振动，纵轴 = 温度。每个蓝点是一次测量。</p>
+        <div class="btnrow">
+          <button class="btn active" data-cov="pos">正相关（一起升）</button>
+          <button class="btn" data-cov="neg">负相关（一升一降）</button>
+          <button class="btn" data-cov="zero">无关（乱的）</button>
+        </div>
+        <p style="margin-top:12px;font-size:14px;color:var(--muted)">正相关：振动高时温度也高（斜向上的云）<br>
+        负相关：振动高时温度低（斜向下）<br>
+        无关：看不出趋势（一团乱）</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>公式</h3>
+      <div class="eq">
+        Cov(X, Y) = Σ [(x<sub>i</sub> − x̄)(y<sub>i</sub> − ȳ)] / n
+      </div>
+      <p>拆开看：</p>
+      <ul style="margin:10px 0 0 20px;line-height:1.9">
+        <li><code>(x<sub>i</sub> − x̄)</code> 是第 i 次测量时，X 偏离自己平均值多少</li>
+        <li><code>(y<sub>i</sub> − ȳ)</code> 是同一时刻，Y 偏离自己平均值多少</li>
+        <li>把这两个偏离<strong>乘起来</strong>，再对所有测量求平均</li>
+      </ul>
+    </div>
+
+    <div class="grid2">
+      <div class="step">
+        <div class="t">为什么乘起来？</div>
+        如果 X 偏高时 Y 也偏高 → 两个正数相乘 = 正数<br>
+        如果 X 偏高时 Y 偏低 → 正×负 = 负数<br>
+        求平均后：正 = 正相关，负 = 负相关，接近0 = 无关
+      </div>
+      <div class="step">
+        <div class="t">健康监测里的意义</div>
+        健康主轴：振动和温度的协方差稳定（转快→发热→振动大）。<br>
+        异常：协方差变了 → 配合关系坏了。
+      </div>
+    </div>
+
+    <div class="callout key">
+      <strong>协方差矩阵：</strong>如果有 10 个传感器，就有 10×10 = 100 个协方差（包括每个传感器和自己的协方差，就是方差）。<br>
+      这个 10×10 的表，就是<strong>协方差矩阵 Σ</strong>，它完整描述了"10 个传感器之间所有的两两关系"。
+    </div>
+  </div>
+</section>
+
+<section id="s3">
+  <div class="wrap">
+    <h2><span class="num">3</span>第三步：理解"特征值"和"特征向量"</h2>
+    <p class="sub">这是 PCA 的核心数学。听起来吓人，其实就是"找数据的主要方向"。</p>
+
+    <div class="demo">
+      <div>
+        <canvas id="cv3" width="400" height="360"></canvas>
+      </div>
+      <div>
+        <h3>直觉：数据的"主轴"在哪</h3>
+        <p>左图中蓝点形成一个斜椭圆。两条红色箭头是<strong>特征向量</strong>（数据的主要方向）。</p>
+        <p><strong>长箭头</strong>：数据变化最大的方向（第一主成分）<br>
+        <strong>短箭头</strong>：第二大的方向，且和第一个垂直</p>
+        <p style="margin-top:12px;color:var(--muted);font-size:14px">箭头的<strong>长度</strong>就是对应的<strong>特征值</strong>（λ，lambda）——越长说明那个方向上数据变化越剧烈。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>数学定义（可以跳过，看下面的比喻）</h3>
+      <div class="eq">
+        Σ · <i>v</i> = λ · <i>v</i>
+      </div>
+      <p><code>Σ</code> 是协方差矩阵，<code>v</code> 是特征向量，<code>λ</code> 是特征值。<br>
+      这个等式的意思：协方差矩阵作用在特征向量上，结果只是把向量"拉伸"了 λ 倍，方向不变。</p>
+    </div>
+
+    <div class="card">
+      <h3>🎯 比喻：橄榄球的长轴和短轴</h3>
+      <p>想象你的数据是一颗<strong>橄榄球</strong>（椭球体）：</p>
+      <ul style="margin:10px 0 0 20px;line-height:1.9">
+        <li><strong>特征向量</strong> = 橄榄球的长轴、短轴方向（互相垂直）</li>
+        <li><strong>特征值</strong> = 这些轴的长度平方（长轴的特征值大，短轴的小）</li>
+        <li>如果你有 10 个传感器，橄榄球就在 10 维空间里，有 10 个轴</li>
+      </ul>
+      <p style="margin-top:12px">PCA 的目标：<strong>找出最长的那 2-3 根轴，扔掉短的</strong>。因为短轴方向上数据变化很小，可以忽略。</p>
+    </div>
+
+    <div class="callout key">
+      <strong>为什么特征值能代表"重要性"？</strong><br>
+      特征值 = 数据在那个方向上的方差。<strong>特征值大 = 那个方向上数据变化剧烈 = 包含更多信息</strong>。<br>
+      所以我们按特征值从大到小排序，挑最大的几个，就抓住了数据的主要特征。
+    </div>
+  </div>
+</section>
+
+<section id="s4">
+  <div class="wrap">
+    <h2><span class="num">4</span>第四步：PCA 降维</h2>
+    <p class="sub">把 10 个传感器"压缩"成 2-3 个"主成分"，丢掉噪音，留下主要信息。</p>
+
+    <div class="card">
+      <h3>完整流程（以 10 个传感器为例）</h3>
+      <table>
+        <tr><th style="width:40px">步骤</th><th>操作</th><th>输入</th><th>输出</th></tr>
+        <tr>
+          <td class="c">1</td>
+          <td>收集健康数据</td>
+          <td>100 次测量 × 10 个传感器</td>
+          <td>100×10 的数据矩阵 <code>X</code></td>
+        </tr>
+        <tr>
+          <td class="c">2</td>
+          <td>标准化</td>
+          <td><code>X</code></td>
+          <td>每列减均值、除以标准差 → <code>Z</code></td>
+        </tr>
+        <tr>
+          <td class="c">3</td>
+          <td>算协方差矩阵</td>
+          <td><code>Z</code></td>
+          <td>10×10 的协方差矩阵 <code>Σ</code></td>
+        </tr>
+        <tr>
+          <td class="c">4</td>
+          <td>求特征值/向量</td>
+          <td><code>Σ</code></td>
+          <td>10 个特征值 λ₁…λ₁₀ 和对应的 10 个特征向量</td>
+        </tr>
+        <tr>
+          <td class="c">5</td>
+          <td>选主成分</td>
+          <td>特征值从大到小排序</td>
+          <td>挑前 k 个（如前 3 个），它们解释了 95% 的方差</td>
+        </tr>
+        <tr>
+          <td class="c">6</td>
+          <td>投影降维</td>
+          <td>原始 10 维数据 <code>Z</code></td>
+          <td>降到 k 维（如 3 维）的主成分分数</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="grid2">
+      <div class="step">
+        <div class="t">为什么要标准化（步骤2）？</div>
+        振动单位是 mm/s，温度是 ℃，电流是 A。不标准化的话，数值大的变量会主导结果。标准化后每个变量都变成"偏离均值几个标准差"。
+      </div>
+      <div class="step">
+        <div class="t">怎么决定保留几个主成分？</div>
+        看"累积解释方差比"：前 k 个特征值的和 / 所有特征值的和。<br>
+        通常选到累计 ≥ 90% 或 95%。
+      </div>
+    </div>
+
+    <div class="callout key">
+      <strong>PCA 降维的物理意义：</strong><br>
+      原本 10 个传感器 = 10 维空间里的一个点。PCA 找到数据的"主要扁平方向"（比如 3 维子空间），把点投影到这个子空间上。<br>
+      <strong>结果：</strong>10 维 → 3 维，丢掉了 7 个"不重要"的方向（噪音、冗余），留下主要的健康模式。
+    </div>
+  </div>
+</section>
+
+<section id="s5">
+  <div class="wrap">
+    <h2><span class="num">5</span>第五步：T² 统计量（主成分空间内的异常）</h2>
+    <p class="sub">现在我们有了 3 个主成分，怎么判断新数据是否异常？T² 登场。</p>
+
+    <div class="card">
+      <h3>直觉：离健康中心有多远</h3>
+      <p>把健康数据投影到 3 维主成分空间后，它们形成一团"云"。健康数据的中心是原点（因为标准化后均值为 0）。</p>
+      <p><strong>T² 统计量</strong>就是：新数据点在这个 3 维主成分空间里，<strong>离原点的"标准化距离"</strong>。</p>
+    </div>
+
+    <div class="card">
+      <h3>公式</h3>
+      <div class="eq">
+        T² = <i>t</i><sup>T</sup> Λ<sup>−1</sup> <i>t</i>
+      </div>
+      <p>拆开看：</p>
+      <ul style="margin:10px 0 0 20px;line-height:1.9">
+        <li><code>t</code> 是新数据在主成分空间的坐标（3 个数，对应 3 个主成分）</li>
+        <li><code>Λ</code>（大写 Lambda）是对角矩阵，对角线上是前 k 个特征值</li>
+        <li><code>Λ<sup>−1</sup></code> 的对角线是 1/λ₁, 1/λ₂, 1/λ₃</li>
+      </ul>
+      <p style="margin-top:12px">简化理解：</p>
+      <div class="eq">
+        T² = t₁²/λ₁ + t₂²/λ₂ + t₃²/λ₃
+      </div>
+      <p>就是"每个主成分方向上的坐标平方，除以该方向的特征值，再加起来"。</p>
+    </div>
+
+    <div class="grid2">
+      <div class="step">
+        <div class="t">为什么要除以特征值？</div>
+        特征值大的方向，健康数据本来变化就大，新数据在那个方向上跑远一点是正常的。<br>
+        除以 λ 就是"标准化"：把每个方向上的距离，换算成"偏离几个标准差"。
+      </div>
+      <div class="step">
+        <div class="t">健康监测里的意义</div>
+        T² 小 → 新数据和健康数据的"主要共变模式"一致。<br>
+        T² 大 → 偏离了健康的主模式，可能异常。
+      </div>
+    </div>
+
+    <div class="callout key">
+      <strong>T² 的阈值怎么定？</strong><br>
+      用健康校准数据算出它们的 T² 分布，取 99% 分位数作为上限（UCL）。<br>
+      新数据 T² > UCL → 报警。
+    </div>
+  </div>
+</section>
+
+<section id="s6">
+  <div class="wrap">
+    <h2><span class="num">6</span>第六步：SPE 残差（主成分空间外的异常）</h2>
+    <p class="sub">T² 只看主成分空间内部，SPE 专门盯"被 PCA 丢掉的部分"。</p>
+
+    <div class="card">
+      <h3>直觉：投影误差有多大</h3>
+      <p>PCA 把 10 维数据投影到 3 维子空间。<strong>SPE（Squared Prediction Error）</strong>量的是：<br>
+      <strong>"原始 10 维点"和"它在 3 维子空间上的投影"之间的距离平方</strong>。</p>
+      <p style="margin-top:12px">类比：你在地面上，太阳把你的影子投到墙上。SPE 就是"你离墙有多远"。</p>
+    </div>
+
+    <div class="card">
+      <h3>公式</h3>
+      <div class="eq">
+        SPE = ||<i>x</i> − <i>x̂</i>||²
+      </div>
+      <p>其中：</p>
+      <ul style="margin:10px 0 0 20px;line-height:1.9">
+        <li><code>x</code> 是原始 10 维数据（标准化后）</li>
+        <li><code>x̂</code> 是它在 3 维主成分子空间上的投影，再反投影回 10 维</li>
+        <li><code>||...||²</code> 表示欧氏距离的平方</li>
+      </ul>
+      <p style="margin-top:12px">展开计算：</p>
+      <div class="eq">
+        1. 把 <i>x</i> 投影到主成分空间：<i>t</i> = W<sup>T</sup> <i>x</i><br>
+        2. 反投影回原空间：<i>x̂</i> = W <i>t</i><br>
+        3. 算残差：<i>e</i> = <i>x</i> − <i>x̂</i><br>
+        4. SPE = <i>e</i><sup>T</sup> <i>e</i>
+      </div>
+      <p style="margin-top:8px;color:var(--muted);font-size:14px"><code>W</code> 是主成分矩阵（10×3），每列是一个特征向量。</p>
+    </div>
+
+    <div class="grid2">
+      <div class="step">
+        <div class="t">为什么需要 SPE？</div>
+        T² 只能检测"主模式内部的偏离"。如果故障影响的是被 PCA 丢掉的那 7 个次要方向（如某个单独传感器的局部异常），T² 可能看不见，但 SPE 能抓住。
+      </div>
+      <div class="step">
+        <div class="t">健康监测里的意义</div>
+        SPE 小 → 数据完全符合主成分模型。<br>
+        SPE 大 → 数据在主成分子空间之外有显著偏离，可能是局部传感器异常或模型没学到的模式。
+      </div>
+    </div>
+
+    <div class="callout key">
+      <strong>T² vs SPE 的分工：</strong><br>
+      • <strong>T²</strong>：检测"整体共变模式的偏离"（如多个传感器同时升高）<br>
+      • <strong>SPE</strong>：检测"局部或模型外的偏离"（如单个传感器突然跳变）<br>
+      <strong>两者互补，缺一不可。</strong>实验中发现，删掉强特征后，T² 效果很弱（AUC=0.64），加上 SPE 后直接满分（AUC=1.0）。
+    </div>
+  </div>
+</section>
+
+<section id="s7">
+  <div class="wrap">
+    <h2><span class="num">7</span>完整流程：从传感器数据到健康分数</h2>
+    <p class="sub">把前面所有步骤串起来，看一遍完整的健康监测流程。</p>
+
+    <div class="card">
+      <h3>训练阶段（学习健康基线）</h3>
+      <table>
+        <tr><th style="width:50px">步骤</th><th>操作</th><th>举例（10 传感器，100 健康样本）</th></tr>
+        <tr>
+          <td class="c">1</td>
+          <td>收集健康数据</td>
+          <td>主轴正常运行时采集 100 次 → 100×10 矩阵</td>
+        </tr>
+        <tr>
+          <td class="c">2</td>
+          <td>标准化</td>
+          <td>每列减均值、除以标准差 → Z</td>
+        </tr>
+        <tr>
+          <td class="c">3</td>
+          <td>算协方差矩阵</td>
+          <td>Σ = Z<sup>T</sup>Z / (n−1) → 10×10 矩阵</td>
+        </tr>
+        <tr>
+          <td class="c">4</td>
+          <td>特征值分解</td>
+          <td>得到 10 个特征值和特征向量</td>
+        </tr>
+        <tr>
+          <td class="c">5</td>
+          <td>选主成分</td>
+          <td>前 3 个特征值累计占 95% → k=3</td>
+        </tr>
+        <tr>
+          <td class="c">6</td>
+          <td>算健康 T² 和 SPE</td>
+          <td>对 100 个健康样本算 T² 和 SPE</td>
+        </tr>
+        <tr>
+          <td class="c">7</td>
+          <td>定阈值</td>
+          <td>T²_UCL = 健康 T² 的 99% 分位数<br>SPE_UCL = 健康 SPE 的 99% 分位数</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>在线监测阶段（检测新数据）</h3>
+      <table>
+        <tr><th style="width:50px">步骤</th><th>操作</th><th>公式/说明</th></tr>
+        <tr>
+          <td class="c">1</td>
+          <td>采集新数据</td>
+          <td>10 个传感器的当前读数 → 向量 x</td>
+        </tr>
+        <tr>
+          <td class="c">2</td>
+          <td>用训练时的均值/标准差标准化</td>
+          <td>z = (x − μ_train) / σ_train</td>
+        </tr>
+        <tr>
+          <td class="c">3</td>
+          <td>投影到主成分</td>
+          <td>t = W<sup>T</sup> z（W 是 10×3 主成分矩阵）</td>
+        </tr>
+        <tr>
+          <td class="c">4</td>
+          <td>算 T²</td>
+          <td>T² = t₁²/λ₁ + t₂²/λ₂ + t₃²/λ₃</td>
+        </tr>
+        <tr>
+          <td class="c">5</td>
+          <td>算 SPE</td>
+          <td>z_hat = W t（反投影）<br>SPE = ||z − z_hat||²</td>
+        </tr>
+        <tr>
+          <td class="c">6</td>
+          <td>判断异常</td>
+          <td>score = max(T²/T²_UCL, SPE/SPE_UCL)<br>score > 1 → 报警</td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="callout key">
+      <strong>为什么用 max(T²/UCL, SPE/UCL)？</strong><br>
+      T² 和 SPE 检测的异常类型不同。用 max 表示"只要其中一个超限就报警"，确保两种异常都能抓住。<br>
+      有些实现用加权和，但 max 更直观且实验效果好。
+    </div>
+
+    <div class="card">
+      <h3>🎯 完整数学链条总结</h3>
+      <div style="background:#f8faff;border-left:4px solid var(--accent);padding:16px;border-radius:8px;line-height:2">
+        <strong>方差</strong> → 单个变量的波动大小<br>
+        ↓<br>
+        <strong>协方差</strong> → 两个变量之间的联合波动<br>
+        ↓<br>
+        <strong>协方差矩阵</strong> → 所有变量两两之间的关系（10×10 表）<br>
+        ↓<br>
+        <strong>特征值/向量</strong> → 数据的主要变化方向和强度<br>
+        ↓<br>
+        <strong>PCA 降维</strong> → 提取前 k 个主方向，丢掉次要方向<br>
+        ↓<br>
+        <strong>T²</strong> → 在主成分空间内的异常（主模式偏离）<br>
+        <strong>SPE</strong> → 在主成分空间外的异常（局部或模型外偏离）<br>
+        ↓<br>
+        <strong>综合健康分数</strong> → max(T²/UCL, SPE/UCL)
+      </div>
+    </div>
+
+    <div class="callout note">
+      <strong>为什么这套数学能判断机器健康？</strong><br><br>
+      1. <strong>学习健康的"形状"</strong>：PCA 把健康数据的主要共变模式提取成几个主成分，形成一个低维子空间。<br><br>
+      2. <strong>量化偏离程度</strong>：T² 量"离主模式中心多远"，SPE 量"离主模式子空间多远"。<br><br>
+      3. <strong>自动适应多传感器关系</strong>：不需要手动设 10 个阈值，模型自动学会"振动高时温度也高"等配合关系。新数据违反这些关系时，T² 或 SPE 会升高。<br><br>
+      4. <strong>早期异常更敏感</strong>：单变量阈值只能抓"某个传感器越界"，PCA+T²+SPE 能抓"多个传感器都略微偏高但组合异常"——这正是早期故障的典型特征。
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    PCA + T² + SPE 数学原理讲解 · 0 基础版<br>
+    配套主文档：multisensor_baseline_explainer.html<br>
+    数据来源：UCI Hydraulic 实验验证
+  </div>
+</footer>
+
+<script>
+// scroll spy
+const links=[...document.querySelectorAll('.nav a')];
+const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+const spy=()=>{
+  const y=window.scrollY+100; let idx=0;
+  secs.forEach((s,i)=>{ if(s && s.offsetTop<=y) idx=i; });
+  links.forEach((a,i)=>a.classList.toggle('active',i===idx));
+};
+window.addEventListener('scroll',spy); spy();
+
+// Canvas 1: variance demo
+const cv1=document.getElementById('cv1'), ctx1=cv1.getContext('2d');
+const W1=cv1.width, H1=cv1.height;
+let varMode='low';
+function drawVar(){
+  ctx1.clearRect(0,0,W1,H1);
+  const mean=H1/2, n=20;
+  const std = varMode==='low'?20:50;
+  ctx1.fillStyle='#64748b'; ctx1.font='13px sans-serif';
+  ctx1.fillText('振动传感器读数（20次测量）',10,20);
+  ctx1.strokeStyle='#ef4444'; ctx1.lineWidth=2;
+  ctx1.beginPath(); ctx1.moveTo(50,mean); ctx1.lineTo(W1-50,mean); ctx1.stroke();
+  ctx1.fillStyle='#ef4444'; ctx1.fillText('平均值',W1-80,mean-8);
+  for(let i=0;i<n;i++){
+    const x=60+i*(W1-120)/(n-1);
+    const y=mean+(Math.random()-0.5)*2*std;
+    ctx1.fillStyle='#3b82f6'; ctx1.beginPath(); ctx1.arc(x,y,5,0,2*Math.PI); ctx1.fill();
+    ctx1.strokeStyle='rgba(59,130,246,.3)'; ctx1.lineWidth=1;
+    ctx1.beginPath(); ctx1.moveTo(x,mean); ctx1.lineTo(x,y); ctx1.stroke();
+  }
+  const varVal=(std*std/100).toFixed(2);
+  ctx1.fillStyle='#1e293b'; ctx1.font='16px sans-serif';
+  ctx1.fillText(`方差 ≈ ${varVal}`,20,H1-20);
+}
+drawVar();
+document.querySelectorAll('[data-var]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('[data-var]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    varMode=b.dataset.var; drawVar();
+  });
+});
+
+// Canvas 2: covariance demo
+const cv2=document.getElementById('cv2'), ctx2=cv2.getContext('2d');
+const W2=cv2.width, H2=cv2.height;
+let covMode='pos';
+function drawCov(){
+  ctx2.clearRect(0,0,W2,H2);
+  const cx=W2/2, cy=H2/2, n=40;
+  ctx2.strokeStyle='#e2e8f0'; ctx2.lineWidth=1;
+  ctx2.beginPath(); ctx2.moveTo(60,cy); ctx2.lineTo(W2-60,cy); ctx2.stroke();
+  ctx2.beginPath(); ctx2.moveTo(cx,60); ctx2.lineTo(cx,H2-60); ctx2.stroke();
+  ctx2.fillStyle='#64748b'; ctx2.font='12px sans-serif';
+  ctx2.fillText('振动 →',W2-90,cy+18); ctx2.fillText('温度 ↑',cx+8,70);
+  for(let i=0;i<n;i++){
+    const a=Math.random()*2-1, b=Math.random()*2-1;
+    let x,y;
+    if(covMode==='pos'){ x=a; y=a*0.7+b*0.3; }
+    else if(covMode==='neg'){ x=a; y=-a*0.7+b*0.3; }
+    else{ x=a; y=b; }
+    const px=cx+x*80, py=cy-y*80;
+    ctx2.fillStyle='rgba(59,130,246,.7)';
+    ctx2.beginPath(); ctx2.arc(px,py,4,0,2*Math.PI); ctx2.fill();
+  }
+}
+drawCov();
+document.querySelectorAll('[data-cov]').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('[data-cov]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    covMode=b.dataset.cov; drawCov();
+  });
+});
+
+// Canvas 3: eigenvectors
+const cv3=document.getElementById('cv3'), ctx3=cv3.getContext('2d');
+const W3=cv3.width, H3=cv3.height;
+function drawEigen(){
+  ctx3.clearRect(0,0,W3,H3);
+  const cx=W3/2, cy=H3/2, n=60;
+  ctx3.strokeStyle='#f1f5f9'; ctx3.lineWidth=1;
+  for(let g=-2;g<=2;g++){
+    ctx3.beginPath(); ctx3.moveTo(cx+g*60,60); ctx3.lineTo(cx+g*60,H3-60); ctx3.stroke();
+    ctx3.beginPath(); ctx3.moveTo(60,cy-g*60); ctx3.lineTo(W3-60,cy-g*60); ctx3.stroke();
+  }
+  for(let i=0;i<n;i++){
+    const a=(Math.random()-0.5)*2, b=(Math.random()-0.5)*0.5;
+    const ang=Math.PI*0.25;
+    const x=a*Math.cos(ang)-b*Math.sin(ang);
+    const y=a*Math.sin(ang)+b*Math.cos(ang);
+    const px=cx+x*70, py=cy-y*70;
+    ctx3.fillStyle='rgba(59,130,246,.6)';
+    ctx3.beginPath(); ctx3.arc(px,py,3.5,0,2*Math.PI); ctx3.fill();
+  }
+  // eigenvectors
+  const ang=Math.PI*0.25;
+  ctx3.strokeStyle='#ef4444'; ctx3.lineWidth=3;
+  const len1=140, len2=35;
+  ctx3.beginPath(); ctx3.moveTo(cx,cy);
+  ctx3.lineTo(cx+len1*Math.cos(ang),cy-len1*Math.sin(ang)); ctx3.stroke();
+  ctx3.beginPath(); ctx3.moveTo(cx,cy);
+  ctx3.lineTo(cx-len2*Math.sin(ang),cy-len2*Math.cos(ang)); ctx3.stroke();
+  ctx3.fillStyle='#ef4444'; ctx3.font='13px sans-serif';
+  ctx3.fillText('第1主成分(λ₁大)',cx+100,cy-90);
+  ctx3.fillText('第2主成分(λ₂小)',cx-100,cy+30);
+}
+drawEigen();
+</script>
+</body>
+</html>

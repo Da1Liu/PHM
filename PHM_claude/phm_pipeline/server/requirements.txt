@@ -1,0 +1,10 @@
+# 机床健康基线控制台运行依赖 (其余 phm_pipeline 仅需 numpy)
+flask>=2.2
+flask-cors>=3.0
+flask-sock>=0.6      # WebSocket 实时推送; 缺失则前端退化为轮询(仍可用)
+requests>=2.25       # 调用 NC-Link API Server (HTTP)
+numpy>=1.21
+# 存储用 stdlib sqlite3, 无需额外安装
+# --- 中心看板 (server/dashboard.py) 额外依赖 ---
+psycopg2-binary>=2.9 # 读 phm_v2 PostgreSQL
+waitress>=2.1        # 生产 WSGI 服务器 (替代 Flask 开发服务器; 缺失则 --dev 退回 app.run)

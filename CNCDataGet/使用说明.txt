@@ -1,0 +1,4 @@
+1. 若无python环境，先安装文件夹中的python
+2. 按照提示运行mosquito
+3. 运行NcLink文件夹中的bat脚本
+4. 按照提示运行数据采集或回放

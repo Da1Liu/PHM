@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    目标框架 net472：与桌面端一致，直接引用随 NI-DAQmx 安装的 .NET Framework 程序集
+    （NI 无 .NET Core 版 DAQmx 程序集）。用 .NET 8 SDK + 引用程序集包即可编译，无需 VS。
+    定义 NIDAQ 常量 -> 编入真实 NI 采集源（NiDaqVibrationSource）。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>MachineCollector</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <DefineConstants>$(DefineConstants);NIDAQ</DefineConstants>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 构建期提供 net472 引用程序集（免装 .NET Framework 开发包/VS） -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <!-- Npgsql 7.x 支持 net472（netstandard2.0），含二进制 COPY；与桌面端同代 -->
+    <PackageReference Include="Npgsql" Version="7.0.7" />
+    <!-- 配置读取用 Newtonsoft（net472 上最稳，桌面端亦用之），避免 netstandard 绑定麻烦 -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <!-- NI-DAQmx .NET Framework 程序集（随驱动安装的本地路径，64 位） -->
+  <ItemGroup>
+    <Reference Include="NationalInstruments.DAQmx">
+      <HintPath>C:\Program Files (x86)\National Instruments\MeasurementStudioVS2010\DotNET\Assemblies (64-bit)\Current\NationalInstruments.DAQmx.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="NationalInstruments.Common">
+      <HintPath>C:\Program Files (x86)\National Instruments\Measurement Studio\DotNET\v4.0\AnyCPU\NationalInstruments.Common 19.1.40\NationalInstruments.Common.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

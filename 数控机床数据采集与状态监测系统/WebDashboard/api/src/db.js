@@ -1,7 +1,11 @@
 import 'dotenv/config';
 import pg from 'pg';
+import { DATA_OWNERSHIP } from './domain/ownership.js';
 
 const { Pool } = pg;
+
+// Ownership metadata only. Queries still use the current same PostgreSQL DB.
+export const DB_OWNERSHIP = DATA_OWNERSHIP;
 
 // pg 默认把 BIGINT/NUMERIC 解析为字符串以防精度丢失；本看板的列均为
 // REAL / DOUBLE PRECISION / INT，统一交给默认解析即可（DOUBLE 走 float8 -> number）。
@@ -28,3 +32,4 @@ export async function query(text, params) {
     client.release();
   }
 }
+

@@ -2,7 +2,7 @@
 
 > 采集系统 × 算法核的契约边界 = PostgreSQL `vibration_db` 的 **`phm_v2`** schema。
 > **本文是可读性参考; 精确 DDL 以建表脚本为准** (`_integration_probe/phm_v2_schema.sql` + `health_result_schema.sql` + `phm_v2_acq_config.sql` + `bridge_state_schema.sql`)。
-> 设计原则: **新机型/新协议只加数据行, 不改表结构**。可 `DROP SCHEMA phm_v2 CASCADE` 整体回滚。更新: 2026-07-02。
+> 设计原则: **新机型/新协议只加数据行, 不改表结构**。可 `DROP SCHEMA phm_v2 CASCADE` 整体回滚。更新: 2026-07-03。
 
 ## 表一览
 
@@ -28,16 +28,16 @@
 **角色→采集映射** 由 `acquisition/signal_loader.py` 自动派生 (详见 `ACQUISITION_CONTRACT.md §3`)。首台 41 信号 (4 振动 ni_daq + 37 OPC UA 标量)。
 
 ## acq_config (per-machine JSONB) — 采集参数/控制/边缘入口权威
-`phm_v2.acq_config` 是采集参数与运行控制的单真相源, 与 `signal` 分工如下: `signal` 管“采什么/地址是什么/属于哪个 PHM 角色”, `acq_config` 管“怎么采/是否运行/边缘工作台在哪里”。首阶段 WebDashboard Node API 与 C# collector 已默认读写此表; `public.app_config` 只保留 legacy fallback。
+`phm_v2.acq_config` 是采集参数与运行控制的单真相源, 与 `signal` 分工如下: `signal` 管“采什么/地址是什么/属于哪个 PHM 角色”, `acq_config` 管“怎么采/是否运行/边缘工作台在哪里”。首阶段 WebDashboard Node API 与 C# collector 已默认读写此表; `public.app_config` 只保留 legacy fallback。WebDashboard API 支持用 query/body/header 中的 `machine_id` 显式选择机床，未传时回退 `EDGE_MACHINE_ID`。
 
 当前 `data` 顶层约定:
-- `edge`: `mode=edge_gateway`, `gatewayId`, `baseUrl`。中心看板用 `baseUrl` 打开该机床 WebDashboard 采集工作台。
+- `edge`: `mode=edge_gateway`, `gatewayId`, `baseUrl`。中心看板用 `baseUrl + ?machine_id=<machine_id>` 打开该机床 WebDashboard 采集工作台。
 - `acquisition`: NI source/rate/samplesPerChannel/inputBufferSize/tableBaseName/featureWindowSamples/event* 与 channels[]。
 - `opcua`: endpoint/profile/anonymous/user/pw/pollIntervalMs/enabled。
 - `nclink`: NC-Link 连接参数预留。
 - `control`: `ni_run`, `opcua_run`, `capture_seq`, `capture_signal` 以及采集器回写的 `ni_state`, `ni_message`, `ni_heartbeat`, `ni_rows`, `ni_sps`, `session`, `capture_done`。
 
-控制语义: 中心看板、WebDashboard 本地按钮和采集器只通过同一 JSONB 协调。Node 每 1s reconcile `control.opcua_run` 与 OPC UA 配置自动启停/重启 poller; C# collector 轮询 `ni_run/capture_seq` 并回写 NI 心跳与状态。振动数据首阶段仍由 `public.vib_features -> phm_v2.telemetry` 桥搬运, 未切到 C# 直写 telemetry。
+控制语义: WebDashboard 本地按钮和采集器只通过同一机床 JSONB 协调；中心看板现阶段只读入口、状态与摘要，不直接编辑采集参数。Node 每 1s reconcile 当前活动机床的 `control.opcua_run` 与 OPC UA 配置自动启停/重启 poller; C# collector 轮询 `ni_run/capture_seq` 并回写 NI 心跳与状态。振动数据首阶段仍由 `public.vib_features -> phm_v2.telemetry` 桥搬运, 未切到 C# 直写 telemetry。
 ## telemetry (长表, `PARTITION BY RANGE(ts)` 按月)
 列: `machine_id` / `signal_id`(→signal) / `ts`(TIMESTAMPTZ) / `value` / `feature` / `epoch` / `regime`。
 - `feature=NULL` = 原生标量读数 (PostgresSource 现场 reduce); `feature=rms/std/kurtosis/crest/p2p/...` = 振动窗特征 (采集端就地算)。
@@ -49,6 +49,14 @@
 核心列: `health`/`score`/`t2`/`spe`(Phase2)/`ucl_t2`/`ucl_spe` + 生命周期 `stage`/`n`/`n_days`/`target_n`/`admitted`/`steady` + 显示 `mode`/`light`/`message`/`contributions`(JSONB, Phase2)。
 **UNIQUE(machine_id, phm_system, epoch, regime, ts)** → 幂等 UPSERT, 对上 `/api/sync`。
 
+## 云边 ownership (第一阶段)
+当前仍是同一个 PostgreSQL / `phm_v2` schema，不做物理拆库；但代码与文档已标记未来 ownership:
+- Edge: `phm_v2.acq_config.data.acquisition/opcua/nclink/control`、`phm_v2.vib_raw_blocks`、`phm_v2.bridge_state`、`public.vib_features/events/raw_blocks/_OPCUA_*`。
+- Cloud: `phm_v2.machine`、`phm_v2.signal` 的 PHM 语义字段、`phm_v2.health_result`。
+- Shared: `phm_v2.telemetry` 与 `/api/sync` 契约；Shared 表示同步契约共享，不表示双方都有任意写权限。
+
+正式矩阵见 `docs/architecture/cloud-edge-boundary.md`。代码 metadata 在 `PHM_claude/phm_pipeline/domain/shared/ownership.py` 与 `WebDashboard/api/src/domain/ownership.js`。
+
 ## 设计取舍
 - 长表行数比宽表多, 但 `(signal_id, ts)` 复合索引 + 月分区使常用查询走索引+单分区, 稳定。
 - 振动只存窗特征入 telemetry; 原始波形仅事件/手动入 raw_blocks (块+压缩)。
@@ -58,3 +66,6 @@
 - 整合计划/进度 (A–E) → `INTEGRATION_PLAN.md §1`
 - 采集层全貌 → `ACQUISITION_CONTRACT.md`
 - (历史) v0 设计稿 → `docs/archive/schema_design_draft.md`
+
+
+

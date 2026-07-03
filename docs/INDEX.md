@@ -1,7 +1,7 @@
 # INDEX.md — 全项目知识路由器 (初稿)
 
 > 新 Session 启动: 读根 `CLAUDE.md`(精简入口) → 本文件(决定该读哪份) → 按需取**单篇**。
-> **不要一次性加载所有文档。** 更新: 2026-06-24。
+> **不要一次性加载所有文档。** 更新: 2026-07-03。
 >
 > 状态列 **✅现存** = 文件已在该路径可直接读。(2026-06-24 重构后所有篇目均已落地。)
 
@@ -24,6 +24,7 @@
 | `docs/architecture/algorithm-core.md` | PCA+T²+SPE / 生命周期三阶段 / 工况层 / 数据流 | 改算法核、理解评分链路 | 高 | ✅现存 (来源: PROJECT_STATUS + archive 快照) |
 | `ACQUISITION_CONTRACT.md` (根) | **采集层全貌**: 多协议 telemetry 契约 / signal维表↔采集映射 / NC空跑 profile↔regime / 稳态门控两层 | 接采集器、加协议、理解 regime | 高 | 现存 (= architecture/acquisition-layer) |
 | `docs/architecture/data-contract.md` | phm_v2 schema: machine/signal/telemetry(月分区)/vib_raw_blocks/health_result | 改库、读写 telemetry/回写健康 | 高 | ✅现存 (DDL 以 `_integration_probe/*.sql` 为准) |
+| `docs/architecture/cloud-edge-boundary.md` | **云边边界第一阶段**: Edge/Cloud/Shared domain、API 标记、UI 入口、数据 ownership、未来迁移方向 | 改中心/边缘边界、判断新功能归属、同步前置设计 | 高 | ✅现存 |
 
 ## 3. 模块 (modules/ — 各产品组件)
 | 文件 | 作用 | 何时读 | 优先级 | 状态 / 来源 |
@@ -66,4 +67,5 @@
 ## 迁移说明 (重要)
 - **根 `CLAUDE.md` 已精简** (~1.5k, 自动加载); 旧详版快照在 `docs/archive/CLAUDE_full_2026-06-22.md`。Claude Code 只自动加载根 `CLAUDE.md` 与子目录 CLAUDE.md, 故 `docs/` 下不再另放 CLAUDE.md。
 - `数控机床数据采集与状态监测系统/` 是**半独立子系统**, 自带 CLAUDE.md + RUNBOOK + 各 README, **不并入 docs/**, 仅本 INDEX 引用。
-- architecture(2) / modules(2) / decisions(8 ADR) / operations(1) ✅**已建并填实** (2026-06-24)。`ACQUISITION_CONTRACT.md` 即采集层架构篇, 保留根目录不另立。待来日: multisensor §13 结论抽进 algorithm-core。
+- architecture(3) / modules(2) / decisions(8 ADR) / operations(1) ✅**已建并填实** (2026-06-24)。`ACQUISITION_CONTRACT.md` 即采集层架构篇, 保留根目录不另立。待来日: multisensor §13 结论抽进 algorithm-core。
+

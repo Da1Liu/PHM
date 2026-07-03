@@ -34,11 +34,21 @@
     a.navlink { color: #60a5fa; font-size: 13px; text-decoration: none; margin-left: 16px; }
     .refreshctl { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: #94a3b8; }
     select { background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+    input.node-edit {
+      width: 100%; box-sizing: border-box; background: #0f172a; color: #e2e8f0;
+      border: 1px solid #334155; border-radius: 6px; padding: 5px 8px;
+      font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+    }
+    input.sig-enable { width: 16px; height: 16px; }
+    tr.disabled td { opacity: .52; }
+    .btn.mini { height: 28px; padding: 0 10px; font-size: 12px; }
+    .btn.secondary { background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    .btn.secondary:hover, .btn.mini:hover { filter: brightness(1.1); }
   </style>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">采集信号清单 <span class="tag">采了哪些变量</span></div>
+    <div class="brand">采集信号清单 <span class="tag">维护 OPC UA 采集点</span></div>
     <div class="controls">
       <span id="conn" class="conn conn-unknown">● 加载中…</span>
       <a class="navlink" href="/">← 返回看板</a>
@@ -77,3 +87,4 @@
   <script src="signals.js"></script>
 </body>
 </html>
+

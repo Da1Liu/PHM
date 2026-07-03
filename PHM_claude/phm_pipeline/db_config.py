@@ -20,10 +20,15 @@ from __future__ import annotations
 
 import os
 
+from .domain.shared.ownership import DATA_OWNERSHIP
+
 # PHM_claude/ 目录 (本包的上级), .env 与 .env.example 落在此处.
 _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DOTENV_PATH = os.path.join(_PKG_PARENT, ".env")
 _dotenv_loaded = False
+
+# Ownership metadata only. default_db() still returns the current PostgreSQL connection.
+DB_OWNERSHIP = DATA_OWNERSHIP
 
 
 class DBConfigError(RuntimeError):
@@ -81,3 +86,5 @@ def default_db() -> dict:
         password=password,
         dbname=os.environ.get("PHM_PGDATABASE", "vibration_db"),
     )
+
+

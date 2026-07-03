@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 中心健康看板 (只读富前端后端) — 整合产品中心侧.
 
@@ -33,6 +33,8 @@ from typing import Dict, List, Optional
 from flask import Flask, jsonify, redirect, request, send_from_directory
 from flask_cors import CORS
 
+from ..domain.shared.boundary import Domain, tag_api
+from ..domain.shared.ownership import DATA_OWNERSHIP
 from ..db_config import default_db
 
 try:
@@ -48,6 +50,10 @@ logger = logging.getLogger("phm.dashboard")
 
 # 滚动窗口特征后缀 (贡献度键 = <signal_code>_<feature>); 解析原始波形时剥离
 _FEATURE_SUFFIXES = ("_rms", "_std", "_kurtosis", "_crest", "_p2p", "_mean", "_max", "_min")
+
+# Ownership metadata lives under phm_pipeline.domain. Importing it here makes
+# the center dashboard's DB boundary explicit without changing any query path.
+_DATA_OWNERSHIP = DATA_OWNERSHIP
 
 # phm_v2.signal upsert (按 UNIQUE(machine_id, code)); 在线编辑/导入/克隆共用
 _SIGNAL_UPSERT_SQL = (
@@ -208,7 +214,16 @@ class DataProvider:
 
     def signals(self, machine_id: str) -> List[dict]:
         if self.demo:
-            return []
+            base = [
+                (1, "SP_VIB_X", "主轴X振动", "spindle", "vibration", None, False, True, "g", "Dev1/ai0", "ni_daq"),
+                (2, "SP_VIB_Y", "主轴Y振动", "spindle", "vibration", None, False, True, "g", "Dev1/ai1", "ni_daq"),
+                (3, "SP_RPM", "主轴转速", "spindle", "speed", None, True, False, "rpm", "ns=2;s=Spindle.Speed", "opcua"),
+                (4, "SP_CUR", "主轴电流", "spindle", "current", None, False, False, "A", "ns=2;s=Spindle.Current", "opcua"),
+                (5, "FD_TMP_MOT", "进给电机温", "feed", "temperature", "confound", False, False, "degC", "ns=2;s=Feed.MotorTemp", "opcua"),
+                (6, "HY_OIL_T", "液压油温", "hydraulic", "temperature", "coupled", False, False, "degC", "ns=2;s=Hyd.OilTemp", "opcua"),
+            ]
+            cols = ["id", "code", "name", "system", "kind", "temp_role", "regime", "high_freq", "unit", "addr", "protocol"]
+            return [dict(zip(cols, r)) for r in base]
         with self._cursor() as cur:
             cur.execute(
                 "SELECT signal_id, code, display_name, phm_system, signal_kind, temp_role, "
@@ -253,7 +268,7 @@ class DataProvider:
         }
 
     def upsert_signal(self, machine_id: str, d: dict) -> dict:
-        """新增/改一条信号 (按 UNIQUE(machine_id, code) upsert). 返回 signal_id."""
+        """新增/改一条信号；中心侧普通保存不覆盖边缘维护的 source_addr。"""
         if self.demo:
             return {"ok": False, "error": "demo 模式不可写 (未连库)"}
         s = self._norm_signal(d)
@@ -261,8 +276,22 @@ class DataProvider:
             return {"ok": False, "error": "code 与 signal_kind(类型) 必填"}
         try:
             with self._cursor(write=True) as cur:
-                cur.execute(_SIGNAL_UPSERT_SQL + " RETURNING signal_id", dict(m=machine_id, **s))
-                sid = cur.fetchone()[0]
+                cur.execute("SELECT signal_id FROM phm_v2.signal WHERE machine_id=%s AND code=%s",
+                            (machine_id, s["code"]))
+                row = cur.fetchone()
+                if row:
+                    s["sid"] = row[0]
+                    cur.execute(
+                        "UPDATE phm_v2.signal SET code=%(code)s, display_name=%(display_name)s, "
+                        "unit=%(unit)s, protocol=%(protocol)s, "
+                        "phm_system=%(phm_system)s, signal_kind=%(signal_kind)s, temp_role=%(temp_role)s, "
+                        "regime_role=%(regime_role)s, is_high_freq=%(is_high_freq)s "
+                        "WHERE machine_id=%(m)s AND signal_id=%(sid)s",
+                        dict(m=machine_id, **s))
+                    sid = row[0]
+                else:
+                    cur.execute(_SIGNAL_UPSERT_SQL + " RETURNING signal_id", dict(m=machine_id, **s))
+                    sid = cur.fetchone()[0]
             return {"ok": True, "signal_id": sid}
         except DBError as e:
             return {"ok": False, "error": str(e)}
@@ -277,7 +306,7 @@ class DataProvider:
             with self._cursor(write=True) as cur:
                 cur.execute(
                     "UPDATE phm_v2.signal SET code=%(code)s, display_name=%(display_name)s, "
-                    "unit=%(unit)s, protocol=%(protocol)s, source_addr=%(source_addr)s, "
+                    "unit=%(unit)s, protocol=%(protocol)s, "
                     "phm_system=%(phm_system)s, signal_kind=%(signal_kind)s, temp_role=%(temp_role)s, "
                     "regime_role=%(regime_role)s, is_high_freq=%(is_high_freq)s "
                     "WHERE machine_id=%(m)s AND signal_id=%(sid)s",
@@ -346,6 +375,43 @@ class DataProvider:
             for s in src:
                 s["source_addr"] = ""
         return self.import_signals(machine_id, src, mode="merge")
+
+    def latest_values(self, machine_id: str) -> dict:
+        """中心数据巡检: 从 phm_v2.telemetry 取每个 signal/feature 最新值。"""
+        if self.demo:
+            rows = []
+            now = int(time.time())
+            for i, s in enumerate(self.signals(machine_id)):
+                rows.append({**s, "feature": "rms" if s.get("high_freq") else None,
+                             "value": round(10 * abs(math.sin(i + 1)), 3), "ts": now - i * 3,
+                             "regime": None, "fresh_sec": i * 3, "source": "mock"})
+            return {"ok": True, "machine": machine_id, "values": rows, "source": "mock"}
+        with self._cursor() as cur:
+            cur.execute(
+                "WITH latest AS ("
+                " SELECT DISTINCT ON (t.signal_id, COALESCE(t.feature, '')) "
+                "        t.signal_id, t.ts, t.value, t.feature, t.regime "
+                " FROM phm_v2.telemetry t "
+                " WHERE t.machine_id=%s "
+                " ORDER BY t.signal_id, COALESCE(t.feature, ''), t.ts DESC"
+                ") "
+                "SELECT s.signal_id, s.code, s.display_name, s.unit, s.protocol, s.phm_system, "
+                "       s.signal_kind, s.is_high_freq, l.feature, l.value, l.ts, l.regime "
+                "FROM phm_v2.signal s LEFT JOIN latest l ON l.signal_id=s.signal_id "
+                "WHERE s.machine_id=%s "
+                "ORDER BY s.is_high_freq DESC, s.phm_system, s.code, l.feature",
+                (machine_id, machine_id))
+            rows = cur.fetchall()
+        now = time.time()
+        vals = []
+        for sid, code, name, unit, proto, system, kind, high, feat, val, ts, regime in rows:
+            epoch = int(ts.timestamp()) if ts else None
+            vals.append({"id": sid, "code": code, "name": name, "unit": unit, "protocol": proto,
+                         "system": system, "kind": kind, "high_freq": bool(high), "feature": feat,
+                         "value": float(val) if val is not None else None, "ts": epoch,
+                         "regime": regime, "fresh_sec": round(now - epoch) if epoch else None, "source": "real" if ts else "empty"})
+        return {"ok": True, "machine": machine_id, "values": vals, "source": "real"}
+
 
     # ---- 健康状态 (生产=读 health_result; 无行=建立期 无数据非 mock; demo=mock) ----
     @staticmethod
@@ -651,6 +717,7 @@ def create_app(db: Optional[dict]) -> Flask:
 
     # 就绪/存活探测 (服务管理器/负载均衡用): 健康 200, DB 不可达 503.
     @app.route("/healthz")
+    @tag_api(Domain.SHARED, "service readiness probe")
     def healthz():
         h = dp.ping()
         return jsonify(h), (200 if h["ok"] else 503)
@@ -658,110 +725,117 @@ def create_app(db: Optional[dict]) -> Flask:
     # 前端正式架构 = v2 (方案B master-detail); 根路径默认进 v2. v1 已废弃 (2026-06-29),
     # 仅 /v1/ 保留供设计参照, 勿再扩展.
     @app.route("/")
+    @tag_api(Domain.CLOUD, "legacy cloud dashboard entry, redirects to v2")
     def index():
         return redirect("/v2/")
 
     @app.route("/v1/")
+    @tag_api(Domain.CLOUD, "deprecated cloud dashboard v1 reference")
     def index_v1():
         return send_from_directory(STATIC_DIR, "index.html")   # 废弃: 旧五页平级看板, 仅参照
     @app.route("/static/dashboard/<path:fn>")
+    @tag_api(Domain.CLOUD, "deprecated cloud dashboard v1 static assets")
     def static_files(fn):
         return send_from_directory(STATIC_DIR, fn)
 
     # v2 正式前端 (方案B: 集群→机床详情标签 + 设置建模); 复用下方同一套 /api.
     @app.route("/v2/")
+    @tag_api(Domain.CLOUD, "cloud dashboard v2 entry")
     def index_v2():
         return send_from_directory(STATIC_DIR_V2, "index.html")
 
     @app.route("/v2/<path:fn>")
+    @tag_api(Domain.CLOUD, "cloud dashboard v2 static assets")
     def static_files_v2(fn):
         return send_from_directory(STATIC_DIR_V2, fn)
 
-    @app.route("/api/machines", methods=["GET", "POST"])
+    @app.route("/cloud/")
+    @tag_api(Domain.CLOUD, "explicit cloud dashboard entry alias")
+    def index_cloud():
+        return send_from_directory(STATIC_DIR_V2, "index.html")
+
+    @app.route("/cloud/<path:fn>")
+    @tag_api(Domain.CLOUD, "explicit cloud dashboard static alias")
+    def static_files_cloud(fn):
+        return send_from_directory(STATIC_DIR_V2, fn)
+    @app.route("/api/machines")
+    @tag_api(Domain.CLOUD, "cloud fleet machine catalog")
     def machines():
-        if request.method == "POST":
-            d = request.json or {}
-            return jsonify(dp.create_machine(d.get("machine_id", "").strip(), d.get("cnc_system", "").strip()))
         return jsonify({"ok": True, "machines": dp.machines()})
 
-    @app.route("/api/machines/<mid>", methods=["DELETE"])
-    def machine_delete(mid):
-        return jsonify(dp.delete_machine(mid))
+    @app.route("/api/machines", methods=["POST"])
+    @tag_api(Domain.CLOUD, "cloud machine asset creation")
+    def create_machine():
+        d = request.json or {}
+        return jsonify(dp.create_machine(d.get("machine_id", ""), d.get("cnc_system", "")))
+
 
     @app.route("/api/overview")
+    @tag_api(Domain.CLOUD, "cloud fleet health overview")
     def overview():
         return jsonify({"ok": True, "items": dp.overview()})
 
     # 集群视图聚合端点: 一次返回 machines + overview (收掉前端 boot 的两请求 + 后端 N+1).
     @app.route("/api/fleet")
+    @tag_api(Domain.CLOUD, "cloud fleet bootstrap aggregate")
     def fleet():
         ms = dp.machines()
         return jsonify({"ok": True, "demo": dp.demo,
                         "machines": ms, "items": dp.overview(machines=ms)})
 
-    @app.route("/api/machine/<mid>/signals", methods=["GET", "POST"])
+    @app.route("/api/machine/<mid>/signals")
+    @tag_api(Domain.SHARED, "shared signal catalog; Cloud owns PHM semantics, Edge owns source_addr")
     def signals(mid):
-        if request.method == "POST":
-            return jsonify(dp.upsert_signal(mid, request.json or {}))
         return jsonify({"ok": True, "signals": dp.signals(mid)})
 
-    @app.route("/api/machine/<mid>/signals/<int:sid>", methods=["PUT", "DELETE"])
-    def signal_edit(mid, sid):
-        if request.method == "DELETE":
-            return jsonify(dp.delete_signal(mid, sid))
-        return jsonify(dp.update_signal(mid, sid, request.json or {}))
-
-    @app.route("/api/machine/<mid>/signals/clone", methods=["POST"])
-    def signals_clone(mid):
-        d = request.json or {}
-        return jsonify(dp.clone_signals(mid, d.get("from", ""), bool(d.get("keep_addr"))))
-
-    @app.route("/api/machine/<mid>/signals/import", methods=["POST"])
-    def signals_import(mid):
-        d = request.json or {}
-        return jsonify(dp.import_signals(mid, d.get("signals", []), d.get("mode", "merge")))
-
-    @app.route("/api/machine/<mid>/signals/export")
-    def signals_export(mid):
-        return jsonify({"ok": True, "machine": mid, "signals": dp.export_signals(mid)})
-
     @app.route("/api/machine/<mid>/trend")
+    @tag_api(Domain.CLOUD, "cloud health trend")
     def trend(mid):
         system = request.args.get("system", "spindle")
         return jsonify({"ok": True, **dp.health_trend(mid, system)})
 
     @app.route("/api/machine/<mid>/diagnose")
+    @tag_api(Domain.CLOUD, "cloud PHM diagnosis")
     def diagnose(mid):
         system = request.args.get("system", "spindle")
         return jsonify({"ok": True, **dp.diagnose(mid, system)})
 
-    @app.route("/api/machine/<mid>/acq-config", methods=["GET", "PUT"])
+    @app.route("/api/machine/<mid>/latest-values")
+    @tag_api(Domain.CLOUD, "cloud data inspection over synced telemetry")
+    def latest_values(mid):
+        return jsonify(dp.latest_values(mid))
+
+
+    @app.route("/api/machine/<mid>/acq-config")
+    @tag_api(Domain.SHARED, "Cloud read-only view of Edge-owned acquisition config")
     def acq_config(mid):
-        if request.method == "GET":
-            return jsonify({"ok": True, "config": dp.get_acq_config(mid)})
-        res = dp.save_acq_config(mid, request.json or {})
-        return jsonify(res)
+        return jsonify({"ok": True, "config": dp.get_acq_config(mid)})
 
     @app.route("/api/machine/<mid>/control", methods=["POST"])
+    @tag_api(Domain.EDGE, "legacy remote acquisition control; retained for compatibility")
     def control(mid):
         d = request.json or {}
         ctrl = dp.set_control(mid, d.get("target", "ni"), d.get("action", "stop"), d.get("signal"))
         return jsonify({"ok": True, "control": ctrl})
 
     @app.route("/api/machine/<mid>/collector-status")
+    @tag_api(Domain.SHARED, "Cloud read-only view of Edge collector status")
     def collector_status(mid):
         return jsonify({"ok": True, **dp.collector_status(mid)})
 
     @app.route("/api/machine/<mid>/waveform")
+    @tag_api(Domain.SHARED, "diagnostic waveform read; Edge owns raw blocks")
     def waveform(mid):
         return jsonify({"ok": True, **dp.waveform(mid, request.args.get("signal", ""))})
 
     @app.route("/api/machine/<mid>/alarms")
+    @tag_api(Domain.CLOUD, "cloud alarm list")
     def alarms(mid):
         return jsonify({"ok": True, "alarms": dp.alarms(mid)})
 
     # 数控 HMI 状态投影 (极简, HMI 侧轮询画灯)
     @app.route("/api/status/<mid>")
+    @tag_api(Domain.CLOUD, "cloud-to-HMI health status projection")
     def status(mid):
         items = [o for o in dp.overview() if o["machine"] == mid]
         order = {"red": 3, "yellow": 2, "building": 1, "green": 0}
@@ -773,6 +847,7 @@ def create_app(db: Optional[dict]) -> Flask:
 
     # 边缘 store-and-forward 同步入口 (契约占位: 边缘联网后 push 未同步样本)
     @app.route("/api/sync", methods=["POST"])
+    @tag_api(Domain.SHARED, "Edge-to-Cloud sync contract placeholder")
     def sync():
         payload = request.json or {}
         rows = payload.get("samples", [])
@@ -834,3 +909,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+

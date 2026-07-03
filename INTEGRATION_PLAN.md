@@ -2,7 +2,7 @@
 
 > 把 `数控机床数据采集与状态监测系统/`(C#/Node 采集落库) 与 `PHM_claude/`(算法主线) 整合成一套"采集→健康基线"系统。
 > 本文是整合工作的权威参考。算法/采集各自的现状见两子目录的 CLAUDE.md 与 `PHM_claude/PROJECT_STATUS_AND_HANDOFF.md`。
-> 更新: 2026-07-02 (B1 振动桥落地 / A3 桥路径 / B4 采集子系统导出+可配置采集页 / B5+D9 采集配置单真相源)。状态标记: [✓done] [进行] [待讨论] [待办]。
+> 更新: 2026-07-03 (B1 振动桥 / B5 per-machine 单真相源 / D9 中心-边缘职责收口 / WebDashboard OPC UA 信号维护)。状态标记: [✓done] [进行] [待讨论] [待办]。
 
 ---
 
@@ -68,10 +68,10 @@
 ### 阶段 B — 采集层接入 (各采集器改写入目标为 telemetry)
 - B0 采集层共享件 (2026-06-23) **[✓done desk]**: `acquisition/signal_loader.py`(signal维表→ChannelMapping, 角色映射规则; **真实库 FIELD_2026_06_18 37 OPC UA 信号验证** → condition13/channel14/confounder_temp10) + `acquisition/telemetry_writer.py`(record→telemetry 行格式范本: 标量 feature=NULL/振动 feature=rms.. + 惰性写库) + `acquisition/protocol.py`(`ProtocolClient` 接口/工厂). B1-B3 各瘦采集器据此写 telemetry. 全貌见 `ACQUISITION_CONTRACT.md`.
 - B1 NI 振动采集器(C#): 写入目标 旧表→telemetry; 振动窗特征 is_high_freq=TRUE **[✓done via 过渡桥 2026-06-30]**: 未改 C# 采集器(仍写 `public.vib_features`), 改用 Python **过渡桥** `acquisition/pg_bridge.py` 增量搬 `public.vib_features`→`telemetry`(HF 特征流, channel 1..N→signal_id 按 source_addr ai 序号派生, 5 reducer, watermark 幂等于新表 `phm_v2.bridge_state`, 写前自动建当月分区)。真库 round-trip 验收(隔离测试全清理)+ anchor/smoke 全绿。详见 `ACQUISITION_CONTRACT.md §4b`。**终态**: C# 直写 telemetry 后桥退役; public 旧表按 §0 决策逐步废弃。
-- B2 OPC UA poller(Node): 写入目标→telemetry (feature=NULL) **[待办]**: 桥 Phase 2 (OPC UA 标量) 同此目标, 阻塞于 PostgresSource 低频窗聚合分支 + rpm 工况分层端到端 (§4 P1)。
+- B2 OPC UA poller(Node): 写入目标→telemetry (feature=NULL) **[部分done/待办]**: WebDashboard 已可从 `phm_v2.signal` 维护 OPC UA NodeId 与启用集合, 并在旧 `_OPCUA_*` 固定表路径下按启用集合过滤已有映射; 真正动态写入 `phm_v2.telemetry`、低频窗聚合与 rpm 工况分层仍待做。
 - B3 NC-Link 采集(Python): 写 telemetry **[待办]**
 - B4 采集子系统增强 (WebDashboard) **[✓done 2026-06-30]**: ① **原始数据导出**(CSV+`#`注释 JSON 元数据, 供 ML 验证): 抓取原始块 `/api/export/vib/block` + 特征流 `/api/export/vib/features` + OPC UA 状态量 `/api/export/opcua`(`src/exportStore.js`); pandas `read_csv(comment='#')`/numpy `genfromtxt(skip_header=4)` 可直接消费(注释行纯 ASCII 防 GBK 编码坑)。② **可配置采集页**: `web/index.html`+`app.js` 改动态图表网格——图表数量自由增删、每图自选信号(统一信号目录覆盖振动特征+OPC UA, time 轴自动对齐多源, 布局存 localStorage)。详见 `数控.../CLAUDE.md` web/ 节。
-- B5 **采集配置单真相源 / 边缘工作台接入** **[✓done 2026-07-02]**: 首阶段不改振动落库路径, 先把配置/控制权威源收口到 `phm_v2`。`phm_v2.signal` 作为 WebDashboard 信号目录与采集地址权威; `phm_v2.acq_config` 作为 per-machine 采集参数、边缘网关信息和控制/状态权威。WebDashboard Node API 默认按 `EDGE_MACHINE_ID` (默认 `FIELD_2026_06_18`) 读写 `phm_v2.acq_config.data`, `public.app_config` 仅 legacy fallback; `/api/config`、OPC UA start/stop、NI start/stop/capture 均改写同一 JSONB `control`。Node 增加 1s reconcile, 根据 `control.opcua_run` 与 OPC UA 配置自动启动/停止/重启 poller。C# collector 读取 `data.acquisition` 与 `control.ni_run/capture_seq`, 并把 `ni_state`/`ni_message`/`ni_heartbeat`/`ni_rows`/`ni_sps`/`session`/`capture_done` 回写同一 JSONB。中心看板采集页在 `data.edge.baseUrl` 上提供“打开采集工作台”入口。验证见 `docs/CURRENT_STATE.md` 2026-07-02 条。
+- B5 **采集配置单真相源 / 边缘工作台接入** **[✓done 2026-07-02, per-machine 修正 2026-07-03]**: 首阶段不改振动落库路径, 先把配置/控制权威源收口到 `phm_v2`。`phm_v2.signal` 作为 WebDashboard 信号目录与采集地址权威; `phm_v2.acq_config` 作为 per-machine 采集参数、边缘网关信息和控制/状态权威。WebDashboard Node API 默认按 `EDGE_MACHINE_ID` (默认 `FIELD_2026_06_18`) 读写 `phm_v2.acq_config.data`, 也支持请求 `machine_id` 显式切换到 `CNC_TEST` 等机床, `public.app_config` 仅 legacy fallback; `/api/config`、OPC UA start/stop、NI start/stop/capture 均改写同一 JSONB `control`。Node 增加 1s reconcile, 根据 `control.opcua_run` 与 OPC UA 配置自动启动/停止/重启 poller。C# collector 读取 `data.acquisition` 与 `control.ni_run/capture_seq`, 并把 `ni_state`/`ni_message`/`ni_heartbeat`/`ni_rows`/`ni_sps`/`session`/`capture_done` 回写同一 JSONB。中心看板“边缘接入”在 `data.edge.baseUrl` 上提供“打开采集工作台 / 采集配置 / 信号维护”入口, 并自动追加 `?machine_id=<当前机床>`；中心读取并展示采集配置摘要, 不直接编辑现场采样参数。验证见 `docs/CURRENT_STATE.md` 2026-07-03 条。
 - 注: 稳态判定/regime 不在采集器做, 全上移到阶段 C2。采集器写全量, 准入由 PHM 决定。
 
 ### 阶段 C — PHM 在线消费 (离线先行)
@@ -94,14 +94,14 @@
   - 已验证: HTTP/API/静态全 200; 读真实 machine/signal, 健康数值 mock。运行 `python -m phm_pipeline.server.dashboard --port 8080`。
 - D2b **整合线B 采集配置/控制** **[✓done 脚手架]**: 新建 `phm_v2.acq_config`(per机床 JSONB, 整合线B app_config+collector_control)。
   - 总览加**告警条**(确认占位); 系统诊断加**原始波形查看**(点贡献条→波形, mock); 工程设置改**多 tab**:
-    - 信号映射(signal维表 + probe占位) / **采集配置**(NI 采样率·通道·灵敏度·特征窗·事件阈值 + OPC UA endpoint·profile·轮询 + NC-Link host/port/sn, 读写 acq_config) / **采集控制**(OPC UA·NI 开关·抓取波形·心跳状态徽标) / **同步·状态**(边缘在线·store-and-forward)。
+    - 信号映射(signal维表只读总览) / **边缘接入**(读取 acq_config 的网关入口、状态、信号摘要、采集参数摘要, 跳转 WebDashboard) / **数据巡检**(最新值/新鲜度) / **同步·状态**(边缘在线·store-and-forward)。采样率、通道、灵敏度、OPC UA endpoint/profile/NodeId、启用集合等现场采集配置在 WebDashboard 维护。
   - 接口: `/api/machine/<id>/{acq-config(GET/PUT),control(POST),collector-status,waveform,alarms}`。
   - 采集器真实启停/心跳/probe 已从占位推进到配置单真相源: 中心看板、WebDashboard Node 与 C# collector 共用 `phm_v2.acq_config.data.control`; C# 心跳/NI 状态回写真实字段, Node OPC UA 由 1s reconcile 自动跟随控制位。live 真机 probe、OPC UA 标量入 `telemetry`、边缘离线同步仍在阶段 B/C 后续。
 - D2c **视觉提升 + 必备功能 + 同步线B真实默认配置** **[✓done]**:
   - `acq_config` 结构对齐线B `app_config`(configStore.js DEFAULTS): acquisition{source,rate,samplesPerChannel,inputBufferSize,tableBaseName,featureWindowSamples,event*,channels[{physicalChannel,sensitivityMvPerG:98.94}]} + opcua{enabled,profile,endpoint,anonymous,user,pw,pollIntervalMs}。修复 PUT 整行覆盖 bug → 改顶层浅合并(不再冲掉 control)。
   - 视觉: 健康环形仪表 + sparkline + 机群条(多机床快览/大屏) + 告警条(带时间) + 健康图例 + 趋势阈值参考线/日期轴 + toast + 顶栏机床元信息/时钟/刷新 + 自动刷新(总览15s) + 时间格式化。
-- D2d **多机床管理 + 柔和刷新** **[✓done]**:
-  - 工程设置加「机床管理」tab(列出/新增机床, POST /api/machines); 总览机群条加「＋接入机床」入口。多机床接入 = machine行 + 各自 signal维表 + 各自 acq_config + 各自边缘网关(协议/地址可不同)。
+- D2d **多机床目录 + 柔和刷新** **[✓done]**:
+  - 工程设置现收口为「机床目录/边缘接入」: 中心列出已同步机床并打开对应边缘工作台；新机床接入、基础信息、采集配置在边缘 WebDashboard 完成。多机床接入 = machine行 + 各自 signal维表 + 各自 acq_config + 各自边缘网关(协议/地址可不同)。
   - 自动刷新改**软更新** updateOverview(set-if-changed): 数据不变则零视觉跳动; 变化时卡片淡入。tab 高亮统一 .tab.on。
 - D2待续(已考虑, 缺真实数据/决策): PIN鉴权 / 告警历史+确认持久化 / 趋势时间范围选择 / 导出·维护报告 / 边缘离线数据陈旧横幅 / 维护前后裸指标对比 / 复用线B ECharts 密集图 / ~~信号映射在线编辑~~(✓ 见 D7) / ~~删除机床~~(✓ 见 D8)。
 - D3 两层(已具雏形, PIN 待接)
@@ -111,9 +111,9 @@
   - **D5 diagnose 去 mock (Phase 2) [✓done, 真实数据端到端验收 2026-06-24]**: `BaselineModel.explain()`(T²/SPE/UCL + 逐特征精确可加贡献: SPE 贡献=残差平方/T² 贡献=z·Dz) → `LifecycleResult`/`HealthResult` 透传 → `score_runner` 补写 `t2/spe/ucl_t2/ucl_spe/contributions(JSONB)` → dashboard `_real_diagnose`(真实优先) + 诊断页每通道 T²(蓝)/SPE(黄高亮)双条。验收: FIELD 主轴 stage3 99 行五列全落值, `/api/.../diagnose` source=real, SPE top3 点出关系异常驱动通道; explain 自检(Σ贡献==T²/SPE)/anchor/smoke/HTTP 全 PASS。
   - **D6 波形读 vib_raw_blocks + C3 多机床调度 [✓done 桌面 2026-06-24]**: ① dashboard `waveform` 真实优先读 `vib_raw_blocks`(`_decode_f32` 小端 float32 + 贡献名 `<code>_<feature>` 最长前缀解析→signal_id, 空表回退 mock); 验证 解码单元+合成块 DB round-trip(可逆)+回退 全 PASS。② `score_runner.discover_targets`/`run_all` + `--all`(各机床 signal phm_system ∩ CONFIGS, epoch=各机床 current_epoch, 失败隔离); FIELD 发现 hydraulic(0 no-op)/spindle(159·stage3 99), `--all` 幂等写 159。
   - **Phase 2 剩余待办 (非纯桌面)**: 低频窗聚合分支(等 B2 OPC UA telemetry); 真实波形块由阶段B NI 采集器写入后自动转真值。
-- D7 **信号映射在线编辑器 [✓done 桌面 2026-06-24]**: 工程页「信号映射」从只读占位 → 在线编辑 `phm_v2.signal`(权威登记, 采集器与算法两侧都读它)。`DataProvider` 加 `upsert/update/delete/export/import/clone_signals` + 路由(`POST /signals`, `PUT|DELETE /signals/<sid>`, `POST /signals/{clone,import}`, `GET /signals/export`); 前端逐条增改删 + 下拉枚举(协议/系统/类型/温度角色) + **从其他机床克隆**(默认清空地址, 解决"同点位每台 OPC UA NodeId 不同") + JSON 导入导出。验证: `__MAPTEST__` 一次性机床全链 PASS(克隆 FIELD 41 信号), HTTP 路由烟测 ok, 测试数据已清。**注: probe 实测确认地址仍占位(需 live 采集器); 此编辑只配登记, 不驱动采集——采样率/连接在 acq_config/采集子系统**。
+- D7 **信号映射在线编辑器 [✓done/已收口 2026-07-03]**: 2026-06-24 曾完成中心侧在线编辑/克隆/导入导出；2026-07-03 按中心-边缘职责重新收口: 中心设置页只读展示信号映射和 PHM 语义, 新增/删除/克隆/导入导出、OPC UA NodeId、启用集合和 probe 实测统一下放 WebDashboard。历史 `DataProvider` 写能力需后续鉴权/角色边界明确后再决定是否保留为后台工具。
 - D8 **工程页交互增强 5 项 [✓done 桌面 2026-06-24]**: ① 删除机床(`DELETE /api/machines/<id>`+`delete_machine` 事务全清 signal/acq_config/health_result/telemetry/vib_raw_blocks+machine, UI 二次确认); ② 工程设置顶部机床快捷切换条(各 tab 共用 `setEngMachine`); ③ 采集控制在选中机床操作(并入②); ④ 统一启停(`set_control target='all'` 一次写同置 ni_run+opcua_run, 消除人工时间差利于跨源对齐); ⑤ 波形自选(采集控制通道下拉, 默认高频通道=按 NI 型号登记, 查看内联走 waveform 真实优先 / 抓取写 `control.capture_signal`)。验证: `__CTLTEST__`/`__HTTPDEL__` 全链 PASS, `node --check` app.js OK, HTTP 200, 测试机已清。
-- D9 **中心采集入口对接边缘工作台** **[✓done 2026-07-02]**: `phm_v2.acq_config.data.edge` 增加 `mode=edge_gateway`/`gatewayId`/`baseUrl`; v2 工程页从采集配置读取边缘地址并跳转 WebDashboard。中心看板只保留机床选择、信号映射、采集配置、核心状态与入口, 不复制 WebDashboard 的实时曲线/调试工作台。
+- D9 **中心-边缘职责收口 / 边缘工作台入口 [✓done 2026-07-02, machine_id 入口修正 2026-07-03]**: 中心看板只保留健康结果、机床目录、PHM 信号语义只读总览、边缘入口与只读采集状态; 采集启停、实时曲线、波形抓取、导出、OPC UA NodeId 编辑、启用/停用和 probe 实测归 WebDashboard。`acq_config.data.edge{mode,gatewayId,baseUrl}` 供中心跳转边缘工作台, 跳转 URL 追加 `machine_id` 以绑定 `CNC_TEST`/`FIELD_2026_06_18` 等机床; 中心 `source_addr` 只读。
 ### 阶段 E — 现场标定与上真机
 - E1 物理限 L1 / E2 稳态段匹配热机程序 / E3 工况分层粒度标定 / E4 大修 reset 流程 / E5 存量机退化验证(用户确认精度) **[待办]**
 
@@ -126,9 +126,13 @@
 - **硬化批次遗留待做 (2026-06-30, 多为纯桌面)** — 见 CURRENT_STATE 表分档:
   - **score_runner 增量评分 + 模型持久化** (P1 桌面): 现全量重放/不存模型 → 改增量 + 持久化 BaselineModel(<5KB), 实时评分/边缘下沉前置。落在阶段 C/D4 延伸。
   - **前端详情懒加载** (P1 桌面): boot 预取每台每系统明细 → 改点开机床才拉, 首屏 N×10→1。落在阶段 D。
-  - **写接口鉴权 + CORS 收紧** (P0 安全, 桌面): 当前写接口/`DELETE` 无服务端鉴权 (仅前端置灰)。落在 D3 (两层 PIN 待接) 升级为服务端门控。
+  - **写接口鉴权 + CORS 收紧** (P0 安全, 桌面): 当前中心与 WebDashboard 写接口仍无服务端鉴权 (主要靠前端置灰/内网假设)。落在 D3/采集工作台服务端门控。
   - **`/api/sync` 边缘入库** (P2): 桩 → UPSERT telemetry/health_result 幂等; store-and-forward 闭环 (阶段 B/C)。
   - **采集子系统 `数控.../` 残留明文口令** (P3 杂项): 该子系统自带密钥管理, 单独一轮 (非本计划主线)。
 - 数控 HMI 简略界面落地形态 (CNC 面板能否跑浏览器/Web视图? 还是定制 HMI 轮询 /api/status)
 - 综合大屏多机床总览布局 (现单机床, 待多台份)
 - (已定) 前端基座=线A Flask+WS ✓; PG 驱动=psycopg2-binary ✓; 中心看板生产 WSGI=waitress ✓ (2026-06-30)
+
+
+
+

@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
@@ -6,15 +6,49 @@ import path from 'path';
 import * as repo from './repository.js';
 import { startPoller, stopPoller, restartPoller, getStatus as opcuaStatus } from './opcua/poller.js';
 import { buildOpcua, DERIVED_OPCUA3 } from './opcua/config.js';
-import { ensureConfigTable, getConfig, saveConfig, getSignals, EDGE_MACHINE_ID } from './configStore.js';
+import { ensureConfigTable, getConfig, saveConfig, getSignals, updateSignal, saveOpcuaSelection, EDGE_MACHINE_ID, normalizeMachineId } from './configStore.js';
 import { ensureControlTable, getNiStatus, setNiRun, requestCapture } from './niControl.js';
 import * as vib from './vibStore.js';
 import * as exp from './exportStore.js';
+import { ApiDomain } from './domain/boundary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const MAX_POINTS = Number(process.env.MAX_POINTS || 1000);
+const WEB_ROOT = path.join(__dirname, '..', '..', 'web');
+
+// API domain inventory for the Edge service. The handlers below keep their
+// existing behavior; this table makes placement of future endpoints explicit.
+export const API_DOMAINS = Object.freeze([
+  { method: 'GET', path: '/api/health', domain: ApiDomain.SHARED, purpose: 'service health and default machine identity' },
+  { method: 'GET', path: '/api/tables', domain: ApiDomain.EDGE, purpose: 'local edge DB inspection' },
+  { method: 'GET', path: '/api/opcua/status', domain: ApiDomain.EDGE, purpose: 'OPC UA poller runtime status' },
+  { method: 'GET', path: '/api/opcua/catalog', domain: ApiDomain.EDGE, purpose: 'edge OPC UA signal catalog and live values' },
+  { method: 'GET', path: '/api/signals/catalog', domain: ApiDomain.SHARED, purpose: 'shared signal catalog; edge reads field facts' },
+  { method: 'PUT', path: '/api/signals/:id', domain: ApiDomain.EDGE, purpose: 'edge-owned source_addr/display_name maintenance' },
+  { method: 'PUT', path: '/api/opcua/selection', domain: ApiDomain.EDGE, purpose: 'edge OPC UA collection enablement' },
+  { method: 'POST', path: '/api/opcua/start', domain: ApiDomain.EDGE, purpose: 'edge OPC UA control' },
+  { method: 'POST', path: '/api/opcua/stop', domain: ApiDomain.EDGE, purpose: 'edge OPC UA control' },
+  { method: 'GET', path: '/api/ni/status', domain: ApiDomain.EDGE, purpose: 'edge NI collector status' },
+  { method: 'POST', path: '/api/ni/start', domain: ApiDomain.EDGE, purpose: 'edge NI collector control' },
+  { method: 'POST', path: '/api/ni/stop', domain: ApiDomain.EDGE, purpose: 'edge NI collector control' },
+  { method: 'POST', path: '/api/ni/capture', domain: ApiDomain.EDGE, purpose: 'edge raw waveform capture' },
+  { method: 'GET', path: '/api/vib/sessions', domain: ApiDomain.EDGE, purpose: 'edge vibration sessions' },
+  { method: 'GET', path: '/api/vib/features', domain: ApiDomain.EDGE, purpose: 'edge vibration features' },
+  { method: 'GET', path: '/api/vib/events', domain: ApiDomain.EDGE, purpose: 'edge vibration events' },
+  { method: 'GET', path: '/api/vib/block', domain: ApiDomain.EDGE, purpose: 'edge raw waveform block read' },
+  { method: 'GET', path: '/api/export/vib/block', domain: ApiDomain.EDGE, purpose: 'edge raw block export' },
+  { method: 'GET', path: '/api/export/vib/features', domain: ApiDomain.EDGE, purpose: 'edge feature export' },
+  { method: 'GET', path: '/api/export/opcua', domain: ApiDomain.EDGE, purpose: 'edge OPC UA export' },
+  { method: 'GET', path: '/api/config', domain: ApiDomain.EDGE, purpose: 'edge acquisition config read' },
+  { method: 'PUT', path: '/api/config', domain: ApiDomain.EDGE, purpose: 'edge acquisition config write' },
+  { method: 'GET', path: '/api/spindle/trend', domain: ApiDomain.EDGE, purpose: 'edge legacy OPC UA spindle trend' },
+  { method: 'GET', path: '/api/axes/trend', domain: ApiDomain.EDGE, purpose: 'edge legacy OPC UA axes trend' },
+  { method: 'GET', path: '/api/coordinates', domain: ApiDomain.EDGE, purpose: 'edge legacy OPC UA coordinates' },
+  { method: 'GET', path: '/api/vibration/range', domain: ApiDomain.EDGE, purpose: 'edge legacy vibration table range' },
+  { method: 'GET', path: '/api/vibration', domain: ApiDomain.EDGE, purpose: 'edge legacy vibration table read' },
+]);
 
 app.use(cors());
 app.use(express.json());
@@ -36,6 +70,15 @@ function parseList(v) {
   return String(v).split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+let activeMachineId = EDGE_MACHINE_ID;
+
+function reqMachine(req) {
+  const raw = req.query.machine_id || req.body?.machine_id || req.headers['x-machine-id'];
+  const mid = normalizeMachineId(raw);
+  if (raw) activeMachineId = mid;
+  return mid;
+}
+
 let opcuaDesiredSignature = null;
 let reconciling = false;
 
@@ -43,6 +86,9 @@ function opcuaSignature(cfg) {
   const desired = !!(cfg.control?.opcua_run ?? cfg.opcua?.enabled);
   if (!desired) return 'off';
   const o = cfg.opcua || {};
+  const enabledSignalIds = Array.isArray(o.enabledSignalIds)
+    ? o.enabledSignalIds.map(Number).filter((x) => Number.isInteger(x)).sort((a, b) => a - b)
+    : null;
   return JSON.stringify({
     endpoint: o.endpoint,
     username: o.username,
@@ -50,14 +96,19 @@ function opcuaSignature(cfg) {
     anonymous: !!o.anonymous,
     pollIntervalMs: Number(o.pollIntervalMs || 1000),
     profile: o.profile,
+    enabledSignalIds,
   });
 }
 
-async function reconcileOpcua() {
+function invalidateOpcuaDirectory() {
+  opcuaDesiredSignature = null;
+}
+
+async function reconcileOpcua(machineId = EDGE_MACHINE_ID) {
   if (reconciling) return;
   reconciling = true;
   try {
-    const cfg = await getConfig();
+    const cfg = await getConfig(machineId);
     const sig = opcuaSignature(cfg);
     if (sig === opcuaDesiredSignature) return;
     opcuaDesiredSignature = sig;
@@ -103,6 +154,7 @@ function groupSignals(signals, latestByTable) {
       protocol: s.protocol,
       unit: s.unit,
       highFreq: !!s.is_high_freq,
+      enabled: s.collect_enabled !== false,
       filed: true,
       table: live.table,
       value: live.value,
@@ -119,7 +171,7 @@ function groupSignals(signals, latestByTable) {
 
 app.get('/api/health', wrap(async (req, res) => {
   await repo.ping();
-  res.json({ status: 'ok', db: process.env.PGDATABASE || 'vibration_db', machineId: EDGE_MACHINE_ID });
+  res.json({ status: 'ok', db: process.env.PGDATABASE || 'vibration_db', machineId: reqMachine(req), defaultMachineId: EDGE_MACHINE_ID });
 }));
 
 app.get('/api/tables', wrap(async (req, res) => {
@@ -131,7 +183,8 @@ app.get('/api/opcua/status', wrap(async (req, res) => {
 }));
 
 app.get('/api/opcua/catalog', wrap(async (req, res) => {
-  const cfg = await getConfig();
+  const mid = reqMachine(req);
+  const cfg = await getConfig(mid);
   const st = opcuaStatus();
   const [r2, r3, rnew] = await Promise.all([
     repo.getLatestRow('_OPCUA_2'),
@@ -141,25 +194,27 @@ app.get('/api/opcua/catalog', wrap(async (req, res) => {
 
   let signalRows = [];
   try {
-    signalRows = await getSignals();
+    signalRows = await getSignals(mid);
   } catch (err) {
     console.warn('[signal] catalog unavailable:', err.message);
   }
 
-  const groups = signalRows.length
-    ? groupSignals(signalRows, { r2, r3, rnew })
+  const opcuaRows = signalRows.filter((s) => String(s.protocol || '').toLowerCase() === 'opcua');
+  const groups = opcuaRows.length
+    ? groupSignals(opcuaRows, { r2, r3, rnew })
     : [{ table: 'phm_v2.signal', title: '未建档', latestTime: null, signals: [] }];
 
   const maps = buildOpcua(cfg.opcua.profile);
   res.json({
-    machineId: EDGE_MACHINE_ID,
+    machineId: mid,
+    defaultMachineId: EDGE_MACHINE_ID,
     profile: cfg.opcua.profile,
     endpoint: cfg.opcua.endpoint,
     pollIntervalMs: cfg.opcua.pollIntervalMs,
     enabled: !!(cfg.control?.opcua_run ?? cfg.opcua.enabled),
     status: { running: st.running, connected: st.connected, lastError: st.lastError, lastOkAt: st.lastOkAt },
     nodeCount: maps.allNodeIds.length,
-    source: signalRows.length ? 'phm_v2.signal' : 'unfiled',
+    source: opcuaRows.length ? 'phm_v2.signal' : 'unfiled',
     groups,
     legacyMaps: {
       opcua2: maps.OPCUA2_MAP.length,
@@ -170,19 +225,36 @@ app.get('/api/opcua/catalog', wrap(async (req, res) => {
 }));
 
 app.get('/api/signals/catalog', wrap(async (req, res) => {
+  const mid = reqMachine(req);
   let rows = [];
-  try { rows = await getSignals(); } catch { rows = []; }
-  res.json({ machineId: EDGE_MACHINE_ID, source: rows.length ? 'phm_v2.signal' : 'unfiled', signals: rows });
+  try { rows = await getSignals(mid); } catch { rows = []; }
+  res.json({ machineId: mid, defaultMachineId: EDGE_MACHINE_ID, source: rows.length ? 'phm_v2.signal' : 'unfiled', signals: rows });
+}));
+
+app.put('/api/signals/:id', wrap(async (req, res) => {
+  const row = await updateSignal(req.params.id, req.body || {}, reqMachine(req));
+  if (!row) return res.status(404).json({ ok: false, error: 'signal not found or no editable fields' });
+  invalidateOpcuaDirectory();
+  await reconcileOpcua(reqMachine(req));
+  res.json({ ok: true, signal_id: row.signal_id, opcua: opcuaStatus() });
+}));
+
+app.put('/api/opcua/selection', wrap(async (req, res) => {
+  const ids = Array.isArray(req.body?.enabledSignalIds) ? req.body.enabledSignalIds : [];
+  const cfg = await saveOpcuaSelection(ids, reqMachine(req));
+  invalidateOpcuaDirectory();
+  await reconcileOpcua(reqMachine(req));
+  res.json({ ok: true, enabledSignalIds: cfg.opcua.enabledSignalIds || [], opcua: opcuaStatus() });
 }));
 
 app.post('/api/opcua/start', wrap(async (req, res) => {
-  await saveConfig({ opcua: { enabled: true }, control: { opcua_run: true } });
-  await reconcileOpcua();
+  await saveConfig({ opcua: { enabled: true }, control: { opcua_run: true } }, reqMachine(req));
+  await reconcileOpcua(reqMachine(req));
   res.json({ ok: true, opcua: opcuaStatus() });
 }));
 app.post('/api/opcua/stop', wrap(async (req, res) => {
-  await saveConfig({ opcua: { enabled: false }, control: { opcua_run: false } });
-  await reconcileOpcua();
+  await saveConfig({ opcua: { enabled: false }, control: { opcua_run: false } }, reqMachine(req));
+  await reconcileOpcua(reqMachine(req));
   res.json({ ok: true, opcua: opcuaStatus() });
 }));
 
@@ -246,13 +318,15 @@ app.get('/api/export/opcua', wrap(async (req, res) => {
 }));
 
 app.get('/api/config', wrap(async (req, res) => {
-  res.json(await getConfig());
+  const mid = reqMachine(req);
+  res.json({ ...(await getConfig(mid)), machineId: mid, defaultMachineId: EDGE_MACHINE_ID });
 }));
 
 app.put('/api/config', wrap(async (req, res) => {
-  const next = await saveConfig(req.body || {});
-  await reconcileOpcua();
-  res.json({ saved: true, config: next, opcua: opcuaStatus() });
+  const mid = reqMachine(req);
+  const next = await saveConfig(req.body || {}, mid);
+  await reconcileOpcua(mid);
+  res.json({ saved: true, machineId: mid, config: next, opcua: opcuaStatus() });
 }));
 
 app.get('/api/spindle/trend', wrap(async (req, res) => {
@@ -291,7 +365,17 @@ app.get('/api/vibration', wrap(async (req, res) => {
   }));
 }));
 
-app.use('/', express.static(path.join(__dirname, '..', '..', 'web')));
+app.get(['/edge', '/edge/'], (req, res) => {
+  res.sendFile(path.join(WEB_ROOT, 'index.html'));
+});
+app.get('/edge/config', (req, res) => {
+  res.sendFile(path.join(WEB_ROOT, 'config.html'));
+});
+app.get('/edge/signals', (req, res) => {
+  res.sendFile(path.join(WEB_ROOT, 'signals.html'));
+});
+
+app.use('/', express.static(WEB_ROOT));
 
 app.listen(PORT, async () => {
   console.log(`dashboard/acquisition backend started: http://localhost:${PORT}`);
@@ -302,7 +386,7 @@ app.listen(PORT, async () => {
     await ensureConfigTable();
     await ensureControlTable();
     await reconcileOpcua();
-    setInterval(reconcileOpcua, 1000).unref();
+    setInterval(() => reconcileOpcua(activeMachineId), 1000).unref();
   } catch (err) {
     console.error('[config] initialization failed:', err.message);
   }
@@ -315,4 +399,8 @@ async function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+
+
+
 

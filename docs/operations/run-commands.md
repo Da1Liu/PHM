@@ -1,6 +1,6 @@
 # 运行与自检命令 (run-commands)
 
-> 各组件的运行/自检/库连接一站式速查。更新: 2026-07-02 (加采集落库桥命令)。
+> 各组件的运行/自检/库连接一站式速查。更新: 2026-07-03 (加采集落库桥命令 / WebDashboard machine_id 调试入口)。
 > 现场采集 (NI + OPC UA 两进程) 在子系统, 见 `数控.../WebDashboard/RUNBOOK_现场.md`。
 
 ## 算法核自检 (在 `PHM_claude/` 下)
@@ -16,9 +16,9 @@ python -m phm_pipeline.server.dashboard_smoke   # 中心看板冒烟 (DB-free: d
 
 ## 服务 (在 `PHM_claude/` 下)
 ```bash
-python -m phm_pipeline.server.dashboard --port 8080   # 中心只读看板 (默认 waitress 生产 WSGI; 未装则退 flask 并告警)
-python -m phm_pipeline.server.dashboard --port 8080 --dev    # 强制 Flask 开发服务器 (调试用)
-python -m phm_pipeline.server.dashboard --port 8080 --no-db  # demo 模式 (全 mock, 无需口令)
+python -m phm_pipeline.server.dashboard --port 8099   # 中心只读看板 Cloud Dashboard: /cloud/ (兼容 /v2/)
+python -m phm_pipeline.server.dashboard --port 8099 --dev    # 强制 Flask 开发服务器 (调试用)
+python -m phm_pipeline.server.dashboard --port 8099 --no-db  # demo 模式 (全 mock, 无需口令)
 python -m phm_pipeline.server.app --mock              # NC-Link 采集控制台 (边缘侧, 无硬件演示)
 python -m phm_pipeline.server.app --port 9000         # 控制台接真实 NC-Link API Server
 ```
@@ -46,7 +46,7 @@ Node API / Web:
 cd '数控机床数据采集与状态监测系统/WebDashboard/api'
 npm start
 ```
-默认 `PORT=4000`; `/api/config`、OPC UA 控制、NI 控制均写同一 `phm_v2.acq_config.data.control`。OPC UA poller 由 1s reconcile 跟随 `control.opcua_run`。
+默认 `PORT=4000`; Edge UI 显式入口 `/edge/`、`/edge/config`、`/edge/signals`，兼容旧入口 `/`、`/config.html`、`/signals.html`。`/api/config`、`/api/opcua/catalog`、OPC UA 控制、NI 控制均按当前 `machine_id` 写对应机床的 `phm_v2.acq_config.data.control`。中心看板打开边缘工作台会自动追加 `?machine_id=<机床ID>`；手工调试也可访问 `http://localhost:4000/edge/config?machine_id=CNC_TEST` 或 `http://localhost:4000/edge/signals?machine_id=CNC_TEST`。OPC UA poller 由 1s reconcile 跟随当前活动机床的 `control.opcua_run`。
 
 C# collector:
 ```powershell
@@ -82,3 +82,8 @@ python -m phm_pipeline.score_runner --machine FIELD_2026_06_18 --system spindle 
 
 ## Windows 控制台中文乱码
 PowerShell 跑出现 GBK 乱码时, 命令前置 `PYTHONIOENCODING=utf-8` (仅显示问题, 入库为 UTF-8 不受影响)。
+
+
+
+
+

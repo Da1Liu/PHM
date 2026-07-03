@@ -26,7 +26,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">采集配置 <span class="tag">替代 Form1 系统设置</span></div>
+    <div class="brand">采集配置 <span class="tag" id="machineTag">替代 Form1 系统设置</span></div>
     <div>
       <a class="back" href="/signals.html" style="margin-right:16px;">📋 采集信号清单</a>
       <a class="back" href="/">← 返回看板</a>
@@ -80,6 +80,8 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
+    const MACHINE_ID = new URLSearchParams(location.search).get('machine_id') || '';
+    const apiUrl = (path) => MACHINE_ID ? `${path}${path.includes('?') ? '&' : '?'}machine_id=${encodeURIComponent(MACHINE_ID)}` : path;
     function chRow(c = { physicalChannel: '', sensitivityMvPerG: 98.94 }) {
       const div = document.createElement('div');
       div.className = 'chrow';
@@ -90,7 +92,7 @@
       return div;
     }
     async function load() {
-      const c = await (await fetch('/api/config')).json();
+      const c = await (await fetch(apiUrl('/api/config'))).json();
       $('acq_source').value = c.acquisition.source;
       $('acq_rate').value = c.acquisition.rate;
       $('acq_spc').value = c.acquisition.samplesPerChannel;
@@ -142,7 +144,7 @@
       };
       msg('保存中…');
       try {
-        const r = await fetch('/api/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const r = await fetch(apiUrl('/api/config'), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, machine_id: MACHINE_ID }) });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || r.statusText);
         msg('已保存 ✓ OPC UA: ' + (j.opcua.running ? '运行中' : '未运行') + (j.opcua.lastError ? ' (' + j.opcua.lastError + ')' : ''), '#22c55e');
@@ -151,7 +153,15 @@
     $('addCh').onclick = () => $('channels').appendChild(chRow());
     $('save').onclick = save;
     $('reload').onclick = load;
+    if (MACHINE_ID) $('machineTag').textContent = MACHINE_ID;
+    document.querySelectorAll('a.back').forEach((a) => {
+      if (MACHINE_ID && a.getAttribute('href')?.startsWith('/')) {
+        const href = a.getAttribute('href');
+        a.setAttribute('href', `${href}${href.includes('?') ? '&' : '?'}machine_id=${encodeURIComponent(MACHINE_ID)}`);
+      }
+    });
     load();
   </script>
 </body>
 </html>
+

@@ -1,7 +1,10 @@
-﻿import { query } from './db.js';
+import { query } from './db.js';
 import { connection } from './opcua/config.js';
 
 export const EDGE_MACHINE_ID = process.env.EDGE_MACHINE_ID || 'FIELD_2026_06_18';
+export function normalizeMachineId(machineId) {
+  return String(machineId || EDGE_MACHINE_ID).trim() || EDGE_MACHINE_ID;
+}
 
 const DEFAULTS = {
   edge: {
@@ -102,9 +105,29 @@ async function getLegacyConfig() {
   return rows.length ? mergeConfig(rows[0].data) : structuredClone(DEFAULTS);
 }
 
-export async function getConfig() {
+async function ensureMachineConfig(machineId = EDGE_MACHINE_ID) {
+  const mid = normalizeMachineId(machineId);
+  await query(
+    'INSERT INTO phm_v2.machine (machine_id, cnc_system, current_epoch, note) VALUES ($1, $2, 1, $3) ' +
+    'ON CONFLICT (machine_id) DO NOTHING',
+    [mid, 'unknown', 'edge gateway managed machine']
+  );
+  const { rows } = await query('SELECT 1 FROM phm_v2.acq_config WHERE machine_id=$1', [mid]);
+  if (rows.length === 0) {
+    const seed = mergeConfig({ edge: { gatewayId: mid } });
+    await query('INSERT INTO phm_v2.acq_config (machine_id, data) VALUES ($1, $2)', [
+      mid,
+      JSON.stringify(seed),
+    ]);
+  }
+  return mid;
+}
+
+export async function getConfig(machineId = EDGE_MACHINE_ID) {
+  const mid = normalizeMachineId(machineId);
   try {
-    const { rows } = await query('SELECT data FROM phm_v2.acq_config WHERE machine_id=$1', [EDGE_MACHINE_ID]);
+    await ensureMachineConfig(mid);
+    const { rows } = await query('SELECT data FROM phm_v2.acq_config WHERE machine_id=$1', [mid]);
     if (rows.length) return mergeConfig(rows[0].data);
   } catch (err) {
     console.warn(`[config] phm_v2.acq_config unavailable, using legacy app_config: ${err.message}`);
@@ -113,8 +136,9 @@ export async function getConfig() {
   return structuredClone(DEFAULTS);
 }
 
-export async function saveConfig(patch) {
-  const cur = await getConfig();
+export async function saveConfig(patch, machineId = EDGE_MACHINE_ID) {
+  const mid = normalizeMachineId(machineId);
+  const cur = await getConfig(mid);
   const next = {
     edge: { ...cur.edge, ...(patch.edge || {}) },
     acquisition: { ...cur.acquisition, ...(patch.acquisition || {}) },
@@ -126,7 +150,7 @@ export async function saveConfig(patch) {
     await query(
       'INSERT INTO phm_v2.acq_config (machine_id, data, updated_at) VALUES ($1, $2, now()) ' +
       'ON CONFLICT (machine_id) DO UPDATE SET data = EXCLUDED.data, updated_at = now()',
-      [EDGE_MACHINE_ID, JSON.stringify(next)]
+      [mid, JSON.stringify(next)]
     );
   } catch (err) {
     console.warn(`[config] save to phm_v2.acq_config failed, writing legacy app_config: ${err.message}`);
@@ -139,16 +163,44 @@ export async function saveConfig(patch) {
   return next;
 }
 
-export async function getSignals() {
+async function getSignalRows(machineId = EDGE_MACHINE_ID) {
+  const mid = normalizeMachineId(machineId);
   const { rows } = await query(
     `SELECT signal_id, code, display_name, unit, protocol, source_addr, phm_system,
             signal_kind, temp_role, regime_role, is_high_freq
        FROM phm_v2.signal
       WHERE machine_id=$1
       ORDER BY is_high_freq DESC, phm_system, code`,
-    [EDGE_MACHINE_ID]
+    [mid]
   );
   return rows;
+}
+
+export async function getSignals(machineId = EDGE_MACHINE_ID) {
+  const mid = normalizeMachineId(machineId);
+  const [rows, cfg] = await Promise.all([getSignalRows(mid), getConfig(mid)]);
+  const selected = Array.isArray(cfg.opcua?.enabledSignalIds) ? new Set(cfg.opcua.enabledSignalIds.map(Number)) : null;
+  return rows.map((r) => ({ ...r, collect_enabled: selected ? selected.has(Number(r.signal_id)) : true }));
+}
+
+export async function updateSignal(signalId, patch = {}, machineId = EDGE_MACHINE_ID) {
+  const mid = normalizeMachineId(machineId);
+  const allowed = {};
+  if (Object.prototype.hasOwnProperty.call(patch, 'source_addr')) allowed.source_addr = String(patch.source_addr || '').trim();
+  if (Object.prototype.hasOwnProperty.call(patch, 'display_name')) allowed.display_name = String(patch.display_name || '').trim();
+  const entries = Object.entries(allowed);
+  if (!entries.length) return null;
+  const sets = entries.map(([k], i) => `${k}=$${i + 2}`).join(', ');
+  const { rows } = await query(
+    `UPDATE phm_v2.signal SET ${sets} WHERE machine_id=$1 AND signal_id=$${entries.length + 2} RETURNING signal_id`,
+    [mid, ...entries.map(([, v]) => v), Number(signalId)]
+  );
+  return rows[0] || null;
+}
+
+export async function saveOpcuaSelection(enabledSignalIds = [], machineId = EDGE_MACHINE_ID) {
+  const ids = enabledSignalIds.map(Number).filter((x) => Number.isInteger(x) && x > 0);
+  return saveConfig({ opcua: { enabledSignalIds: ids } }, machineId);
 }
 
 export { DEFAULTS, mergeConfig };

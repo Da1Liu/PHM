@@ -4,6 +4,7 @@ import {
 import { query } from '../db.js';
 import { ensureOpcuaTables } from './schema.js';
 import { connection, buildOpcua, deriveOpcua3 } from './config.js';
+import { getSignals } from '../configStore.js';
 import { coerce } from './transform.js';
 
 // 后端 OPC UA 轮询：替代桌面端 Form2 的 OPCUA2/3/new_Tick（各 1000ms）。
@@ -31,6 +32,34 @@ export function getStatus() {
   };
 }
 
+
+async function applySignalDirectory(maps, cfg) {
+  const selectedIds = Array.isArray(cfg.enabledSignalIds) ? new Set(cfg.enabledSignalIds.map(Number)) : null;
+  if (!selectedIds) return maps;
+  let signals = [];
+  try {
+    signals = (await getSignals()).filter((s) => String(s.protocol || '').toLowerCase() === 'opcua');
+  } catch (err) {
+    console.warn(`[opcua] signal directory unavailable, using legacy maps: ${err.message}`);
+    return maps;
+  }
+  const enabled = signals.filter((s) => selectedIds.has(Number(s.signal_id)));
+  const byCode = new Map(enabled.map((s) => [s.code, s]));
+  const byNode = new Map(enabled.filter((s) => s.source_addr).map((s) => [s.source_addr, s]));
+  const filterMap = (arr) => arr.flatMap((m) => {
+    const s = byCode.get(m.col) || byNode.get(m.node);
+    if (!s) return [];
+    return [{ ...m, node: s.source_addr || m.node, label: s.display_name || m.label }];
+  });
+  const next = {
+    ...maps,
+    OPCUA2_MAP: filterMap(maps.OPCUA2_MAP),
+    OPCUA3_MAP: filterMap(maps.OPCUA3_MAP),
+    OPCUA_NEW_MAP: filterMap(maps.OPCUA_NEW_MAP),
+  };
+  next.allNodeIds = [...new Set([...next.OPCUA2_MAP, ...next.OPCUA3_MAP, ...next.OPCUA_NEW_MAP].map((m) => m.node))];
+  return next;
+}
 export async function startPoller(cfg = {}) {
   if (running) return;
   const c = {
@@ -43,8 +72,13 @@ export async function startPoller(cfg = {}) {
   };
   activeCfg = c;
 
-  const maps = buildOpcua(c.profile);
+  const maps = await applySignalDirectory(buildOpcua(c.profile), cfg);
   const nodeIds = maps.allNodeIds;
+  if (!nodeIds.length) {
+    lastError = '未启用任何 OPC UA 采集信号';
+    running = false;
+    return;
+  }
   const nodeIndex = new Map(nodeIds.map((id, i) => [id, i]));
 
   await ensureOpcuaTables();
@@ -139,3 +173,4 @@ export async function stopPoller() {
   session = null;
   client = null;
 }
+

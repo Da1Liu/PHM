@@ -2,7 +2,7 @@
 
 > 这是**采集层的单一参考**: 多协议/多硬件怎么接、数据怎么落库、工况(regime)怎么定义。
 > 上层入口仍是 `CLAUDE.md`; 算法核见 `PHM_claude/PROJECT_STATUS_AND_HANDOFF.md`; 整合计划见 `INTEGRATION_PLAN.md`。
-> 更新: 2026-07-02 (加 §4b 采集落库桥, §4c phm_v2.acq_config 配置/控制契约)。
+> 更新: 2026-07-03 (加 §4b 采集落库桥, §4c phm_v2.acq_config per-machine 配置/控制契约)。
 
 ## 0. 一句话
 
@@ -11,7 +11,7 @@
 ## 1. 多协议主接缝 = telemetry 表 + signal 维表 (关键认知)
 
 - `phm_pipeline/acquisition/` 是 **NC-Link 这一种协议的瘦采集器**, 不是通用采集层。
-- 加一种协议/硬件 = **写一个瘦采集器(任意语言)写 telemetry + 在 `signal` 维表登记几行**, 不碰已有代码。
+-  一种协议/硬件 = **写一个瘦采集器(任意语言)写 telemetry + 在 `signal` 维表登记几行**, 不碰已有代码。
 - 各路状态: 首台**西门子840D 走 OPC UA**(线B Node 采集器) + 高频振动**NI-DAQmx 走 C# native**(就地算特征) + 后续台份可能**华中HNC/发那科FANUC 走 NC-Link/FOCAS** + 国产振动传感器各自驱动。能力不同(NC-Link 只有寄存器轮询、无高频波形)。
 
 ## 2. 数据契约 (`phm_v2`, 建表见 `_integration_probe/phm_v2_schema.sql`)
@@ -57,12 +57,12 @@
 
 首阶段把“采集项”和“采集参数/控制”收口到 `phm_v2`, 但暂不改变振动数据落库路径:
 - **采集项权威 = `phm_v2.signal`**: WebDashboard 信号目录、OPC UA NodeId、NI 通道、系统归属、信号类型、工况/温度角色、高频标记均从这里生成。缺少登记时 UI 显示“未建档”, 不再把硬编码 catalog 当集成默认。
-- **采集参数/控制权威 = `phm_v2.acq_config.data`**: per-machine JSONB, 默认由边缘进程环境变量 `EDGE_MACHINE_ID` 选中机器 (`FIELD_2026_06_18`)。`public.app_config` 只作 legacy fallback, 不再是集成默认路径。
+- **采集参数/控制权威 = `phm_v2.acq_config.data`**: per-machine JSONB, 默认由边缘进程环境变量 `EDGE_MACHINE_ID` 选中机器 (`FIELD_2026_06_18`)，也可由 Web/API 请求的 `machine_id` 显式选择。`public.app_config` 只作 legacy fallback, 不再是集成默认路径。
 - JSON 顶层约定: `edge{mode,gatewayId,baseUrl}` / `acquisition{source,rate,samplesPerChannel,inputBufferSize,tableBaseName,featureWindowSamples,event*,channels[]}` / `opcua{enabled,profile,endpoint,anonymous,user,pw,pollIntervalMs}` / `nclink{...}` / `control{ni_run,opcua_run,capture_seq,capture_signal,ni_state,ni_message,ni_heartbeat,ni_rows,ni_sps,session,capture_done,...}`。
-- WebDashboard Node `/api/config`、OPC UA start/stop、NI start/stop/capture 与中心看板 `/api/machine/<id>/acq-config|control|collector-status` 读写同一 JSONB。
-- Node API 每 1s reconcile `control.opcua_run` 与 OPC UA 配置签名, 自动启动/停止/重启 poller; WebDashboard 本地按钮和中心看板按钮都只是改同一控制位。
+- WebDashboard Node `/api/config`、`/api/opcua/catalog`、OPC UA NodeId 保存、启用集合保存、OPC UA start/stop、NI start/stop/capture 均以当前 `machine_id` 为作用域读写对应机床 JSONB；中心看板 `/api/machine/<id>/acq-config|collector-status` 读取同一配置并只展示入口/状态/摘要。
+- Node API 每 1s reconcile `control.opcua_run` 与 OPC UA 配置签名, 自动启动/停止/重启 poller; WebDashboard 本地按钮只是改同一控制位。当前 poller 为单实例, 定时 reconcile 跟随最近一次带 `machine_id` 的工作台/API 请求; 同一边缘进程同时采多机需后续 per-machine poller。
 - C# collector 读取 `data.acquisition` 和 `control.ni_run/capture_seq`, 并把 `ni_state`/`ni_message`/`ni_heartbeat`/`ni_rows`/`ni_sps`/`session`/`capture_done` 回写到同一 JSONB。
-- `data.edge.baseUrl` 是中心看板跳转 WebDashboard 边缘工作台的入口; 中心侧只展示核心状态, 实时曲线/调试仍在 WebDashboard。
+- `data.edge.baseUrl` 是中心看板跳转 WebDashboard 边缘工作台的入口; 中心生成入口时追加 `?machine_id=<machine_id>`，避免多机共用同一边缘地址时读到默认机床配置。中心侧只展示核心状态、信号摘要和采集参数摘要, 实时曲线/调试/NodeId/启用集合仍在 WebDashboard。
 - 安全边界: 科研首阶段未做鉴权/CORS/审计; 服务应绑定本机或内网, 不得直接暴露公网。删除机床、epoch reset、停止采集等破坏性操作保留二次确认。
 
 数据路径仍按 §4b: C# 振动特征继续写 `public.vib_features`, `pg_bridge.py` 增量搬到 `phm_v2.telemetry`; OPC UA 标量入 telemetry 与 rpm/regime 分层属于 Phase 2。
@@ -106,3 +106,7 @@ desk 验证脚本(`_integration_probe/`): `signal_loader_telemetry_check.py` / `
 - 稳态门控阈值(`steady_max_cv`/`slope`)、rpm 档边界、混淆温通道名、信号名→regime 标量归一: 待首台真实数据。
 - `TelemetryWriter` 真实写库压测; 分区自动建(A3) **桥路径已做** (`pg_bridge._ensure_partitions` 写前按 ts 建当月分区), NC-Link `TelemetryWriter` 可复用同逻辑(待)。Python OPC UA 客户端(若要复用 Collector, 否则用线B Node)。
 - 低频原始序列窗聚合分支(PostgresSource)启用 = OPC UA 标量桥(pg_bridge Phase 2)的前置。
+
+
+
+
